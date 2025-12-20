@@ -20,38 +20,3 @@
 考虑到在工程实践中，我们可以通过工具调用来实现记忆管理的交互，因此在上下文工程中，对于信息的扩展查询可以使用一种标准化接口来完成，并进一步总结为一个标准化流程。
 
 受益于 Claude Skill 的渐进式加载机制，我们也看到在不同工具之间，可以通过渐进式加载的方式实现大模型对工具的自主选择。这与在 SQL 中定义并显式调用执行的存储过程不同，它通过渐进式加载提供了额外的自主性。
-
-## Use case
-> The Autonomy Slider —— Reference Karpathy's speech on Software 3.0. Show me the diff in vivid.
-
-```
-Configurable + Autonomy by LLM via feedback control
-Autonomy by LLM via feedback control(metric or history)
-Autonomy by LLM
-Configurable
-HardCode
-```
-
-- [ ] Should we make a middleware just input as prompt and output as result?(Autonomy)
-- [ ] We provides workflow and let people able to config it.(Configurable)
-- [ ] We provides sdk let people implements their own.(Hardcode)
-
-- [ ] Obversbility —— otel.
-
-- [ ] Function selction.
-   - [ ] "Progressive loading" base on RAG. (Autonomy)
-   - [ ] Hard code memory tool invoke. (Autonomy or defualt? tbd)
-   - [ ] Hardcode control by human, as index hint for SQL?.
-   - [ ] Hardcode control by human as input.
-
-- [ ] File format Autonomy, took PDF format as example.
-    - [ ] Context auto into markdown.(Autonomy)
-    - [ ] Context auto embedding for RAG.(Autonomy)
-    - [ ] Or Hardcode control by human outside our process.
-
-- [ ] Content Autonomy.
-    - [ ] RAG support by default.(Autonomy)
-    - [ ] Hard code as input prompt content.(Hardcode control by human)
-
-## todo
-Find some agent bench mark for testing.
