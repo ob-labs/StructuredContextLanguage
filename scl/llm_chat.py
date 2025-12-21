@@ -1,28 +1,37 @@
-import os
 import json
 from openai import OpenAI
 from function_reg import FunctionRegistry
 from scl.embeddings.impl import OpenAIEmbedding
 from scl.storage.pg import PgVectorFunctionStore
+from scl.trace import tracer
 
-def send_messages(client, model, registry, messages, ToolNames):
-    tools_named = registry.getToolsByNames(ToolNames)
-    tools_autonomy = registry.getTools(messages[0]['content'])
-    tools = []
-    for tool in tools_named:
-        tools.append(tool)
-    for tool in tools_autonomy:
-        tools.append(tool)
-    print(tools)
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        tools=tools
-    )
-    return response.choices[0].message
+@tracer.start_as_current_span("send_messages")
+def send_messages(client, model, registry, messages, ToolNames, Turns):
+    if Turns == 0: 
+        tools_named = registry.getToolsByNames(ToolNames)
+        tools_autonomy = registry.getTools(messages[0]['content'])
+        tools = []
+        for tool in tools_named:
+            tools.append(tool)
+        for tool in tools_autonomy:
+            tools.append(tool)
+        print(tools)
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=tools
+        )
+        return response.choices[0].message
+    else:
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages
+                )
+        return response.choices[0].message
 
+@tracer.start_as_current_span("function_call_playground")
 def function_call_playground(client, model, registry, messages, ToolNames):    
-    response = send_messages(client, model, registry, messages, ToolNames)
+    response = send_messages(client, model, registry, messages, ToolNames,0)
     # todo, feedback loop model(langchain)
     print(response)
     if response.tool_calls:
@@ -40,10 +49,12 @@ def function_call_playground(client, model, registry, messages, ToolNames):
                 'content': f'{func1_out}',
                 'tool_call_id': tool_call.id
              })
-        response = send_messages(client, model, registry, messages, ToolNames)
+        response = send_messages(client, model, registry, messages, ToolNames,1)
     return response.content
-  
-## init for test
+
+## init for test  
+import os
+
 client = OpenAI(
     api_key=os.getenv("API_KEY",""),
     base_url=os.getenv("BASE_URL","")

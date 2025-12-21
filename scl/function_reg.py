@@ -6,6 +6,7 @@ from typing import List
 scl_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(scl_root)
 from scl.embeddings.impl import OpenAIEmbedding
+from scl.trace import tracer
 from scl.utils import *
 
 # Import PgVectorFunctionStore conditionally to avoid import errors
@@ -43,6 +44,7 @@ class FunctionRegistry:
     
     ## RAG search between context and function description after embedding
     ## Return function in openAI tool format
+    @tracer.start_as_current_span("getToolsByNames")
     def getToolsByNames(self, ToolNames: List[str]):
         functions = []
         if self.function_store is None:
@@ -58,12 +60,14 @@ class FunctionRegistry:
     
     ## RAG search between context and function description after embedding
     ## Return function in openAI tool format
+    @tracer.start_as_current_span("getTools")
     def getTools(self, context: str, limit=5):
         if self.function_store is None:
             print("Database not initialized. Cannot perform similarity search.")
             return []
         return self.function_store.search_by_similarity(context, limit)
     
+    @tracer.start_as_current_span("call_function_safe")
     def call_function_safe(self, func_name: str, args_dict=None):
         """
         Safely call a function through the registry
@@ -76,6 +80,7 @@ class FunctionRegistry:
         # Call function
         return func(**args_dict)
     
+    @tracer.start_as_current_span("insert_function")
     def insert_function(self, function_name, function_body, llm_description, function_description):
         """
         Insert a new function into the store

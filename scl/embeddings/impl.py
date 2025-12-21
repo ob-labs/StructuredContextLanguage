@@ -1,6 +1,7 @@
 ## logic it can reuse powermem
 import os
 from openai import OpenAI
+from scl.trace import tracer
 
 class OpenAIEmbedding:
     def __init__(self):
@@ -12,6 +13,7 @@ class OpenAIEmbedding:
 
         self.client = OpenAI(api_key=api_key, base_url=base_url)
 
+    @tracer.start_as_current_span("embed")
     def embed(self, text):
         """
         Get the embedding for the given text using OpenAI.

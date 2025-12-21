@@ -7,6 +7,7 @@ scl_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 sys.path.append(scl_root)
 
 from scl.embeddings.impl import OpenAIEmbedding
+from scl.trace import tracer
 
 # Import pgvector Vector class for proper vector handling
 Vector = None
@@ -154,6 +155,7 @@ class PgVectorFunctionStore:
             print(f"创建表格失败: {e}")
             self.conn.rollback()
     
+    @tracer.start_as_current_span("generate_embedding")
     def generate_embedding(self, text):
         """生成文本的嵌入向量"""
         embedding = self.embedding_service.embed(text)
@@ -162,6 +164,7 @@ class PgVectorFunctionStore:
             return Vector(embedding)
         return embedding
     
+    @tracer.start_as_current_span("check_function_exists")
     def check_function_exists(self, function_name):
         """检查函数名是否已存在"""
         try:
@@ -174,6 +177,7 @@ class PgVectorFunctionStore:
             print(f"检查函数名失败: {e}")
             return True  # 如果检查失败，保守地认为存在
     
+    @tracer.start_as_current_span("insert_function")
     def insert_function(self, function_name, function_body, llm_description, function_description):
         """
         插入新函数
@@ -232,6 +236,7 @@ class PgVectorFunctionStore:
             self.conn.rollback()
             return None
     
+    @tracer.start_as_current_span("update_function")
     def update_function(self, function_id=None, function_name=None, function_body=None, llm_description=None, function_description=None):
         """
         更新函数信息
@@ -323,6 +328,7 @@ class PgVectorFunctionStore:
                 cursor.close()
             return False
     
+    @tracer.start_as_current_span("get_function_by_name")
     def get_function_by_name(self, function_name):
         """根据函数名查询"""
         try:
@@ -358,6 +364,7 @@ class PgVectorFunctionStore:
             print(f"查询失败: {e}")
             return []
     
+    @tracer.start_as_current_span("search_by_similarity")
     def search_by_similarity(self, query_text, limit=5, min_similarity=0.5):
         """根据描述相似度查询函数"""
         try:
@@ -406,6 +413,7 @@ class PgVectorFunctionStore:
             print(f"相似性搜索失败: {e}")
             return []
     
+    @tracer.start_as_current_span("delete_function")
     def delete_function(self, function_id=None, function_name=None):
         """删除函数（可按ID或名称删除）"""
         try:
@@ -442,6 +450,7 @@ class PgVectorFunctionStore:
                 cursor.close()
             return False
     
+    @tracer.start_as_current_span("list_all_functions")
     def list_all_functions(self, limit=10):
         """列出所有函数（用于调试）"""
         try:
