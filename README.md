@@ -46,10 +46,9 @@ export OTEL_EXPORTER_OTLP_PROTOCOL="grpc"
 ```
 
 - [ ] Function selction.
-   - [ ] "Progressive loading" base on RAG. (Autonomy)
+   - [x] "Progressive loading" base on RAG. (Autonomy)
    - [ ] Hard code memory tool invoke. (Autonomy or defualt? tbd)
-   - [ ] Hardcode control by human, as index hint for SQL?.
-   - [ ] Hardcode control by human as input.
+   - [x] Hardcode control by human, as index hint for SQL.
 
 - [ ] File format Autonomy, took PDF format as example.
     - [ ] Context auto into markdown.(Autonomy)
@@ -59,7 +58,17 @@ export OTEL_EXPORTER_OTLP_PROTOCOL="grpc"
 - [ ] Content Autonomy.
     - [ ] RAG support by default.(Autonomy)
     - [ ] Hard code as input prompt content.(Hardcode control by human)
+```
+for EMBEDDING service, using siliconflow fow now as poc
+export EMBEDDING_API_KEY=<your_siliconflow_api_key>
+```
+
+```
+docker run -d --name pgvector -e POSTGRES_PASSWORD=postgres -e POSTGRES_USER=postgres -e POSTGRES_DB=postgres -p 5432:5432 ankane/pgvector:v0.5.1
+``
 
 ## todo
+Article/Blog
+Investigating how to reuse powermom?
 Find some agent bench mark for testing.
  
