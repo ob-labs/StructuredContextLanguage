@@ -2,6 +2,7 @@ import psycopg2
 import sys
 import os
 import json
+import logging
 # Add the StructuredContextLanguage directory to the path
 scl_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(scl_root)
@@ -15,9 +16,9 @@ register_vector_info = None
 try:
     from pgvector import Vector
     from pgvector.psycopg2 import register_vector_info
-    print("pgvector imported successfully")
+    logging.info("pgvector imported successfully")
 except ImportError as e:
-    print(f"Warning: pgvector not installed or import failed: {e}")
+    logging.info(f"Warning: pgvector not installed or import failed: {e}")
     Vector = None
     register_vector_info = None
 
@@ -56,18 +57,18 @@ class PgVectorFunctionStore:
                     if result:
                         register_vector_info(result[1], result[2], self.conn)
                 except Exception as e:
-                    print(f"警告: 无法注册vector类型: {e}")
-            print("数据库连接成功！")
+                    logging.info(f"警告: 无法注册vector类型: {e}")
+            logging.info("数据库连接成功！")
         except psycopg2.OperationalError as e:
-            print(f"连接失败: {e}")
-            print("请确保PostgreSQL已安装并运行")
+            logging.info(f"连接失败: {e}")
+            logging.info("请确保PostgreSQL已安装并运行")
             sys.exit(1)
     
     def close(self):
         """关闭数据库连接"""
         if self.conn:
             self.conn.close()
-            print("数据库连接已关闭")
+            logging.info("数据库连接已关闭")
     
     def create_database(self):
         """从零开始创建数据库（需要先连接到默认数据库）"""
@@ -87,9 +88,9 @@ class PgVectorFunctionStore:
             if not exists:
                 # 创建新数据库
                 cursor.execute(f"CREATE DATABASE {self.db_params['dbname']}")
-                print(f"数据库 '{self.db_params['dbname']}' 创建成功！")
+                logging.info(f"数据库 '{self.db_params['dbname']}' 创建成功！")
             else:
-                print(f"数据库 '{self.db_params['dbname']}' 已存在")
+                logging.info(f"数据库 '{self.db_params['dbname']}' 已存在")
             
             cursor.close()
             conn.close()
@@ -98,7 +99,7 @@ class PgVectorFunctionStore:
             self.connect()
             
         except Exception as e:
-            print(f"创建数据库失败: {e}")
+            logging.info(f"创建数据库失败: {e}")
     
     def enable_vector_extension(self):
         """启用pgvector扩展"""
@@ -107,9 +108,9 @@ class PgVectorFunctionStore:
             cursor.execute("CREATE EXTENSION IF NOT EXISTS vector;")
             self.conn.commit()
             cursor.close()
-            print("pgvector扩展已启用")
+            logging.info("pgvector扩展已启用")
         except Exception as e:
-            print(f"启用扩展失败: {e}")
+            logging.info(f"启用扩展失败: {e}")
             self.conn.rollback()
     
     def create_table(self):
@@ -149,10 +150,10 @@ class PgVectorFunctionStore:
             
             self.conn.commit()
             cursor.close()
-            print("表格创建成功，并已建立索引")
+            logging.info("表格创建成功，并已建立索引")
             
         except Exception as e:
-            print(f"创建表格失败: {e}")
+            logging.info(f"创建表格失败: {e}")
             self.conn.rollback()
     
     @tracer.start_as_current_span("generate_embedding")
@@ -174,7 +175,7 @@ class PgVectorFunctionStore:
             cursor.close()
             return count > 0
         except Exception as e:
-            print(f"检查函数名失败: {e}")
+            logging.info(f"检查函数名失败: {e}")
             return True  # 如果检查失败，保守地认为存在
     
     @tracer.start_as_current_span("insert_function")
@@ -192,19 +193,19 @@ class PgVectorFunctionStore:
         try:
             # 检查函数名是否已存在
             if self.check_function_exists(function_name):
-                print(f"函数名 '{function_name}' 已存在，插入失败")
+                logging.info(f"函数名 '{function_name}' 已存在，插入失败")
                 return None
             
             # 验证llm_description格式
             if not isinstance(llm_description, dict):
-                print(f"llm_description必须是字典类型，当前类型: {type(llm_description)}")
+                logging.info(f"llm_description必须是字典类型，当前类型: {type(llm_description)}")
                 return None
             
             # 将llm_description转换为JSON字符串（PostgreSQL的JSONB类型可以接受）
             try:
                 llm_description_json = json.dumps(llm_description)
             except Exception as e:
-                print(f"llm_description JSON序列化失败: {e}")
+                logging.info(f"llm_description JSON序列化失败: {e}")
                 return None
             
             # 生成description的嵌入向量
@@ -224,15 +225,15 @@ class PgVectorFunctionStore:
             self.conn.commit()
             cursor.close()
             
-            print(f"函数 '{function_name}' 插入成功，ID: {function_id}")
+            logging.info(f"函数 '{function_name}' 插入成功，ID: {function_id}")
             return function_id
             
         except psycopg2.errors.UniqueViolation as e:
-            print(f"函数名 '{function_name}' 已存在（唯一约束违规）")
+            logging.info(f"函数名 '{function_name}' 已存在（唯一约束违规）")
             self.conn.rollback()
             return None
         except Exception as e:
-            print(f"插入函数失败: {e}")
+            logging.info(f"插入函数失败: {e}")
             self.conn.rollback()
             return None
     
@@ -257,11 +258,11 @@ class PgVectorFunctionStore:
                 if result:
                     target_id = result[0]
                 else:
-                    print(f"未找到函数名 '{function_name}'")
+                    logging.info(f"未找到函数名 '{function_name}'")
                     cursor.close()
                     return False
             elif not target_id:
-                print("请提供function_id或function_name")
+                logging.info("请提供function_id或function_name")
                 cursor.close()
                 return False
             
@@ -275,7 +276,7 @@ class PgVectorFunctionStore:
             if llm_description:
                 # 验证并转换llm_description
                 if not isinstance(llm_description, dict):
-                    print(f"llm_description必须是字典类型，当前类型: {type(llm_description)}")
+                    logging.info(f"llm_description必须是字典类型，当前类型: {type(llm_description)}")
                     cursor.close()
                     return False
                 
@@ -284,7 +285,7 @@ class PgVectorFunctionStore:
                     update_fields.append("llm_description = %s::jsonb")
                     params.append(llm_description_json)
                 except Exception as e:
-                    print(f"llm_description JSON序列化失败: {e}")
+                    logging.info(f"llm_description JSON序列化失败: {e}")
                     cursor.close()
                     return False
             
@@ -297,7 +298,7 @@ class PgVectorFunctionStore:
                 params.append(embedding)
             
             if not update_fields:
-                print("没有提供更新字段")
+                logging.info("没有提供更新字段")
                 cursor.close()
                 return False
             
@@ -313,16 +314,16 @@ class PgVectorFunctionStore:
             
             if cursor.rowcount > 0:
                 self.conn.commit()
-                print(f"函数 ID {target_id} 更新成功")
+                logging.info(f"函数 ID {target_id} 更新成功")
                 cursor.close()
                 return True
             else:
-                print(f"未找到函数 ID {target_id}")
+                logging.info(f"未找到函数 ID {target_id}")
                 cursor.close()
                 return False
             
         except Exception as e:
-            print(f"更新函数失败: {e}")
+            logging.info(f"更新函数失败: {e}")
             self.conn.rollback()
             if cursor:
                 cursor.close()
@@ -354,14 +355,14 @@ class PgVectorFunctionStore:
                     except:
                         llm_desc = row[3]
                     functions.append(llm_desc)
-                print(f"找到 {len(functions)} 个名为 '{function_name}' 的函数")
+                logging.info(f"找到 {len(functions)} 个名为 '{function_name}' 的函数")
                 return functions
             else:
-                print(f"未找到名为 '{function_name}' 的函数")
+                logging.info(f"未找到名为 '{function_name}' 的函数")
                 return []
             
         except Exception as e:
-            print(f"查询失败: {e}")
+            logging.info(f"查询失败: {e}")
             return []
     
     @tracer.start_as_current_span("search_by_similarity")
@@ -398,19 +399,19 @@ class PgVectorFunctionStore:
                     except:
                         llm_desc = row[2]
                     if float(row[4]) < min_similarity:
-                        print(f"{row[0]} 相似度 {row[4]} 低于阈值 {min_similarity}")
+                        logging.info(f"{row[0]} 相似度 {row[4]} 低于阈值 {min_similarity}")
                         continue
                     # 解析llm_description JSON
                     similar_functions.append(llm_desc)
                 
-                print(f"找到 {len(similar_functions)} 个相似函数")
+                logging.info(f"找到 {len(similar_functions)} 个相似函数")
                 return similar_functions
             else:
-                print("未找到相似函数")
+                logging.info("未找到相似函数")
                 return []
             
         except Exception as e:
-            print(f"相似性搜索失败: {e}")
+            logging.info(f"相似性搜索失败: {e}")
             return []
     
     @tracer.start_as_current_span("delete_function")
@@ -428,23 +429,23 @@ class PgVectorFunctionStore:
                 params = (function_name,)
                 message = f"名称 '{function_name}'"
             else:
-                print("请提供function_id或function_name")
+                logging.info("请提供function_id或function_name")
                 return False
             
             cursor.execute(delete_sql, params)
             
             if cursor.rowcount > 0:
                 self.conn.commit()
-                print(f"删除 {message} 成功，删除了 {cursor.rowcount} 行")
+                logging.info(f"删除 {message} 成功，删除了 {cursor.rowcount} 行")
                 cursor.close()
                 return True
             else:
-                print(f"未找到 {message} 对应的函数")
+                logging.info(f"未找到 {message} 对应的函数")
                 cursor.close()
                 return False
             
         except Exception as e:
-            print(f"删除失败: {e}")
+            logging.info(f"删除失败: {e}")
             self.conn.rollback()
             if cursor:
                 cursor.close()
@@ -484,7 +485,7 @@ class PgVectorFunctionStore:
             return parsed_results
             
         except Exception as e:
-            print(f"查询失败: {e}")
+            logging.info(f"查询失败: {e}")
             return []
 
 

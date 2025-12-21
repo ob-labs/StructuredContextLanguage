@@ -1,5 +1,6 @@
 import sys
 import os
+import logging
 from typing import List
 
 # Add the StructuredContextLanguage directory to the path
@@ -14,7 +15,7 @@ PgVectorFunctionStore = None
 try:
     from scl.storage.pg import PgVectorFunctionStore
 except ImportError:
-    print("Warning: PgVectorFunctionStore could not be imported. Database functionality will be disabled.")
+    logging.info("Warning: PgVectorFunctionStore could not be imported. Database functionality will be disabled.")
 
 
 class FunctionRegistry:
@@ -30,8 +31,8 @@ class FunctionRegistry:
                 self.function_store.enable_vector_extension()
                 self.function_store.create_table()
             except Exception as e:
-                print(f"Warning: Could not initialize database connection: {e}")
-                print("Database functionality will be disabled.")
+                logging.info(f"Warning: Could not initialize database connection: {e}")
+                logging.info("Database functionality will be disabled.")
                 self.function_store = None
 
         # Function registry
@@ -48,12 +49,11 @@ class FunctionRegistry:
     def getToolsByNames(self, ToolNames: List[str]):
         functions = []
         if self.function_store is None:
-            print("Database not initialized. Cannot perform similarity search.")
+            logging.info("Database not initialized. Cannot perform similarity search.")
             return []
         for tool_name in ToolNames:
-            print(f"Searching for function: {tool_name}")
+            logging.info(f"Searching for function: {tool_name}")
             function = self.function_store.get_function_by_name(tool_name)
-            print(function)
             if function:
                 functions.append(function[0])
         return functions
@@ -63,7 +63,7 @@ class FunctionRegistry:
     @tracer.start_as_current_span("getTools")
     def getTools(self, context: str, limit=5):
         if self.function_store is None:
-            print("Database not initialized. Cannot perform similarity search.")
+            logging.info("Database not initialized. Cannot perform similarity search.")
             return []
         return self.function_store.search_by_similarity(context, limit)
     
@@ -86,7 +86,7 @@ class FunctionRegistry:
         Insert a new function into the store
         """
         if self.function_store is None:
-            print("Database not initialized. Cannot insert function.")
+            logging.info("Database not initialized. Cannot insert function.")
             return None
         return self.function_store.insert_function(function_name, function_body, llm_description, function_description)
     

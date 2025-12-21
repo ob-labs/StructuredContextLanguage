@@ -1,4 +1,6 @@
 import os
+import logging
+
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import (
@@ -12,7 +14,7 @@ try:
     OTLP_AVAILABLE = True
 except ImportError:
     OTLP_AVAILABLE = False
-    print("OTLP exporter not available, falling back to console exporter")
+    logging.info("OTLP exporter not available, falling back to console exporter")
 
 # 创建TracerProvider
 provider = TracerProvider()
