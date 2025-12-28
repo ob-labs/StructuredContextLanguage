@@ -6,6 +6,7 @@ import hashlib
 import time
 from pathlib import Path
 import numpy as np
+import pickle
 
 from typing import Optional, List, Dict, Any
 # Add the StructuredContextLanguage directory to the path
@@ -28,6 +29,9 @@ class SkillStore(FunctionStoreBase):
         self.embedding_service = embedding_service
         # Initialize cache for skill description embeddings
         self._skill_embedding_cache = {}
+        self.cache_file = Path(self.folder) / ".skill_cache.pkl"  # Cache file path
+        
+        # Load existing cache from disk if it exists
         if init:
             dir_path = Path(self.folder).resolve()
             for item in dir_path.iterdir():
@@ -35,7 +39,7 @@ class SkillStore(FunctionStoreBase):
                     try:
                         skill_props = read_properties(item)
                         # Pre-populate the cache with skill description embeddings
-                        
+                        print("init skill " + skill_props.name)
                         skill_embedding = self.generate_embedding(skill_props.description)
                         time.sleep(10) ## workaround for rate limiting
                         self._skill_embedding_cache[str(item)] = {
@@ -44,6 +48,10 @@ class SkillStore(FunctionStoreBase):
                         }
                     except Exception as e:
                         logging.error(f"Error reading properties for {item}: {e}")
+            print("save chache to disk")
+            self._save_cache_to_disk()
+        else:
+            self._load_cache_from_disk()
 
     def cosine_similarity(self, vec1, vec2):
         """
@@ -116,11 +124,77 @@ class SkillStore(FunctionStoreBase):
         # todo
         pass
 
+    def _save_cache_to_disk(self):
+        """Save the current cache to disk"""
+        try:
+            # Convert numpy arrays to lists for serialization
+            serializable_cache = {}
+            for path, data in self._skill_embedding_cache.items():
+                serializable_cache[path] = {
+                    "skill_props": data["skill_props"],
+                    "embedding": data["embedding"].tolist() if isinstance(data["embedding"], np.ndarray) else data["embedding"]
+                }
+            
+            with open(self.cache_file, "wb") as f:
+                pickle.dump(serializable_cache, f)
+            logging.info(f"Cache saved to {self.cache_file}")
+        except Exception as e:
+            logging.error(f"Error saving cache to disk: {e}")
+    
+    def _load_cache_from_disk(self):
+        """Load cache from disk if it exists"""
+        if self.cache_file.exists():
+            try:
+                with open(self.cache_file, "rb") as f:
+                    serializable_cache = pickle.load(f)
+                
+                # Convert lists back to numpy arrays
+                for path, data in serializable_cache.items():
+                    self._skill_embedding_cache[path] = {
+                        "skill_props": data["skill_props"],
+                        "embedding": np.array(data["embedding"]) if isinstance(data["embedding"], list) else data["embedding"]
+                    }
+                
+                logging.info(f"Cache loaded from {self.cache_file}")
+            except Exception as e:
+                logging.error(f"Error loading cache from disk: {e}")
+    
+    def clear_cache(self):
+        """Clear the in-memory cache and remove the cache file"""
+        self._skill_embedding_cache = {}
+        if self.cache_file.exists():
+            self.cache_file.unlink()  # Remove the cache file
+        
+    def refresh_cache(self):
+        """Refresh the cache by clearing it and repopulating from the skill folders"""
+        self.clear_cache()
+        self._load_cache_from_disk()  # Try to load existing cache first
+        
+        # Repopulate cache with skills from folder
+        dir_path = Path(self.folder).resolve()
+        for item in dir_path.iterdir():
+            if item.is_dir():
+                try:
+                    skill_props = read_properties(item)
+                    # Pre-populate the cache with skill description embeddings
+                    
+                    skill_embedding = self.generate_embedding(skill_props.description)
+                    time.sleep(10) ## workaround for rate limiting
+                    self._skill_embedding_cache[str(item)] = {
+                        "skill_props": skill_props,
+                        "embedding": skill_embedding
+                    }
+                except Exception as e:
+                    logging.error(f"Error reading properties for {item}: {e}")
+        
+        # Save the refreshed cache to disk
+        self._save_cache_to_disk()
+    
     def support_function_Call(self) -> bool:
         return False
 
 def main():
-    skill_store = SkillStore(folder="./skills/skills",embedding_service=OpenAIEmbedding())
+    skill_store = SkillStore(folder="./skills/skills",init=False,embedding_service=OpenAIEmbedding())
     print(skill_store.search_by_similarity("Creating algorithmic art using p5.js with seeded randomness and interactive parameter exploration."))
 
 if __name__ == "__main__":

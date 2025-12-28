@@ -81,6 +81,10 @@ class FunctionRegistry:
     @tracer.start_as_current_span("call_function_safe")
     def call_function_safe(self, func_name: str, args_dict=None):
         ## todo replace by https://github.com/langchain-ai/langchain-sandbox
+        ### get function body from reg
+        ### get function name
+        ### get function var
+        ### invoke langchain-sandbox
         """
         Safely call a function through the registry
         """
