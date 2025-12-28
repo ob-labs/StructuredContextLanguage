@@ -28,7 +28,8 @@ client = OpenAI(
 model = os.getenv("MODEL","")
 
 skill_set = SkillStore(
-            folder="skills",
+            folder="./scl/storage/skills/skills",
+            init=False, # for 1st run, please set to True to make you a cache.
             embedding_service=OpenAIEmbedding()
         )
 registry = FunctionRegistry(skill_set)
@@ -36,7 +37,7 @@ registry = FunctionRegistry(skill_set)
 ### Function call Autonomy by RAG
 # | Case number | File format | Context RAG | Memory | Function call | 
 # | 0 | n/A | n/A | n/A | n/A |
-messages = [{'role': 'user', 'content': "用中文回答：单词strawberry中有多少个字母r?"}]
+messages = [{'role': 'user', 'content': "Creating algorithmic art using p5.js with seeded randomness and interactive parameter exploration."}]
 print(function_call_playground(client, model, registry, messages, []))
 ## case ? test with function call with hit
 # | ? | n/A | n/A | n/A | Autonomy |

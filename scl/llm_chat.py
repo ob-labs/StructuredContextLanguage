@@ -8,6 +8,8 @@ def send_messages(client, model, registry, messages, ToolNames, Turns):
         tools_named = registry.getToolsByNames(ToolNames)
         tools_autonomy = registry.getTools(messages[0]['content'])
         ## if registry support_functionCall?
+        if not registry.support_functionCall():
+            exit("registry not support functionCall")
         ## where is learn from history? 自适应
             ## 基于规则learn
                 ## 比如正则表达式
