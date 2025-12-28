@@ -9,6 +9,7 @@ sys.path.append(scl_root)
 
 from scl.embeddings.impl import OpenAIEmbedding
 from scl.trace import tracer
+from scl.storage.base import FunctionStoreBase
 
 # Import pgvector Vector class for proper vector handling
 Vector = None
@@ -22,9 +23,9 @@ except ImportError as e:
     Vector = None
     register_vector_info = None
 
-class PgVectorFunctionStore:
+class PgVectorFunctionStore(FunctionStoreBase):
     def __init__(self, dbname="postgres", user="postgres", password="your_password", 
-                 host="localhost", port="5432", embedding_service=None):
+                 host="localhost", port="5432", init=False, embedding_service=None):
         """
         初始化数据库连接
         """
@@ -41,7 +42,11 @@ class PgVectorFunctionStore:
         
         self.conn = None
         self.connect()
-    
+        if init:
+            self.create_database()
+            self.enable_vector_extension()
+            self.create_table()
+            
     def connect(self):
         """连接到数据库"""
         try:
@@ -488,6 +493,8 @@ class PgVectorFunctionStore:
             logging.info(f"查询失败: {e}")
             return []
 
+    def support_function_Call(self) -> bool:
+        return True
 
 # 更新示例使用代码
 def main():

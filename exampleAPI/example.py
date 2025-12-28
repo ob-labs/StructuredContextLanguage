@@ -2,7 +2,11 @@
 import os
 from openai import OpenAI
 import sys
-
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 # Add the parent directory to the path to enable imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -23,9 +27,10 @@ function_store = PgVectorFunctionStore(
             password="postgres",  # 请修改为您的密码
             host="localhost",
             port="5432",
+            init=True,
             embedding_service=OpenAIEmbedding()
         )
-registry = FunctionRegistry(function_store, True)
+registry = FunctionRegistry(function_store)
 
 ## Function Reg
 registry.insert_function(

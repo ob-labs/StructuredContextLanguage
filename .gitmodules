@@ -1,0 +1,3 @@
+[submodule "scl/storage/skills"]
+	path = scl/storage/skills
+	url = git@github.com:anthropics/skills.git

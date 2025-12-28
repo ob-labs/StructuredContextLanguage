@@ -1,7 +1,7 @@
 import sys
 import os
 import logging
-from typing import List
+from typing import List, Optional
 
 # Add the StructuredContextLanguage directory to the path
 scl_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -9,32 +9,43 @@ sys.path.append(scl_root)
 from scl.embeddings.impl import OpenAIEmbedding
 from scl.trace import tracer
 from scl.utils import *
+from scl.storage.base import FunctionStoreBase
 
-# Import PgVectorFunctionStore conditionally to avoid import errors
+# Import storage classes conditionally to avoid import errors
 PgVectorFunctionStore = None
 try:
     from scl.storage.pg import PgVectorFunctionStore
 except ImportError:
     logging.info("Warning: PgVectorFunctionStore could not be imported. Database functionality will be disabled.")
 
+SkillStore = None
+try:
+    from scl.storage.skillstore import SkillStore
+except ImportError:
+    logging.info("Warning: SkillStore could not be imported. File-based storage will be disabled.")
+
 
 class FunctionRegistry:
-    def __init__(self, function_store, init_db=True):
+    def __init__(self, function_store: FunctionStoreBase):
         """
-        Initialize the FunctionRegistry with a PgVectorFunctionStore instance
+        Initialize the FunctionRegistry with any FunctionStoreBase implementation
+        
+        Args:
+            function_store: An instance of any FunctionStoreBase implementation
+            init_db: Optional parameter for initialization (deprecated for generic interface)
         """
+        # Verify that the provided store implements the base interface
+        if not isinstance(function_store, FunctionStoreBase):
+            raise TypeError(f"function_store must be an instance of FunctionStoreBase, got {type(function_store)}")
+        
         self.function_store = function_store
-        if init_db is not None:
-            try:
-                # Setup database
-                self.function_store.create_database()
-                self.function_store.enable_vector_extension()
-                self.function_store.create_table()
-            except Exception as e:
-                logging.info(f"Warning: Could not initialize database connection: {e}")
-                logging.info("Database functionality will be disabled.")
-                self.function_store = None
-
+        
+        # For storage implementations that require initialization, they should handle it in their own __init__
+        # This approach makes the registry storage-agnostic
+        #if init_db is not None:
+        #    logging.info("init_db parameter is deprecated for generic storage interface. Initialization should be handled by storage implementation.")
+        
+        ## todo remove this
         # Function registry
         self.FUNCTION_REGISTRY = {
             'add': add,
@@ -69,6 +80,11 @@ class FunctionRegistry:
     
     @tracer.start_as_current_span("call_function_safe")
     def call_function_safe(self, func_name: str, args_dict=None):
+        ## todo replace by https://github.com/langchain-ai/langchain-sandbox
+        ### get function body from reg
+        ### get function name
+        ### get function var
+        ### invoke langchain-sandbox
         """
         Safely call a function through the registry
         """
@@ -80,7 +96,11 @@ class FunctionRegistry:
         # Call function
         return func(**args_dict)
     
+    def support_functionCall(self):
+        return self.function_store.support_function_Call()
+
     @tracer.start_as_current_span("insert_function")
+    ## interface
     def insert_function(self, function_name, function_body, llm_description, function_description):
         """
         Insert a new function into the store
@@ -98,16 +118,27 @@ def main():
     
     # Test calling functions through the registry
     try:
-        # Test add function
-        function_store = PgVectorFunctionStore(
-            dbname="postgres",
-            user="postgres",
-            password="postgres",  # 请修改为您的密码
-            host="localhost",
-            port="5432",
-            embedding_service=OpenAIEmbedding()
-        )
-        registry = FunctionRegistry(function_store, True)
+        # Example with database storage (if available)
+        if PgVectorFunctionStore:
+            print("Testing with database storage...")
+            function_store = PgVectorFunctionStore(
+                dbname="postgres",
+                user="postgres",
+                password="postgres",  # 请修改为您的密码
+                host="localhost",
+                port="5432",
+                init=True,
+                embedding_service=OpenAIEmbedding()
+            )
+        else:
+            # Fallback to file-based storage
+            print("Database storage not available, testing with file-based storage...")
+            function_store = SkillStore(
+                folder="./test_functions",
+                embedding_service=OpenAIEmbedding()
+            )
+        
+        registry = FunctionRegistry(function_store)
         result = registry.call_function_safe('add', {'a': 5, 'b': 3})
         print(f"Add function result: 5 + 3 = {result}")
         
@@ -126,10 +157,18 @@ def main():
         print(registry.getTools("1 + 2 =?"))
         
         print("Basic function registry tests passed!")
-        print("Note: Database functionality requires PostgreSQL to be installed and running.")
+        print("Note: Storage functionality depends on available implementations.")
             
     except Exception as e:
         print(f"Error during testing: {e}")
+    
+    # Clean up test files if using file-based storage
+    try:
+        import shutil
+        if os.path.exists('./test_functions'):
+            shutil.rmtree('./test_functions')
+    except:
+        pass
 
 
 if __name__ == "__main__":

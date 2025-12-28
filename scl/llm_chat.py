@@ -7,7 +7,19 @@ def send_messages(client, model, registry, messages, ToolNames, Turns):
     if Turns == 0: 
         tools_named = registry.getToolsByNames(ToolNames)
         tools_autonomy = registry.getTools(messages[0]['content'])
+        ## if registry support_functionCall?
+        if not registry.support_functionCall():
+            exit("registry not support functionCall")
+        ## where is learn from history? 自适应
+            ## 基于规则learn
+                ## 比如正则表达式
+                ## 指标学习
+            ## RAG，KNN
+                ## https://chat.deepseek.com/a/chat/s/88544894-4a24-4dfd-ac3d-54afbd6ab7cf
+            ## LLM learn？ workflow memeory
+                ## 大模型通过学习历史，为未来的执行写下hardcode
         tools = []
+        ## todo 去重
         for tool in tools_named:
             tools.append(tool)
         for tool in tools_autonomy:
@@ -31,7 +43,7 @@ def function_call_playground(client, model, registry, messages, ToolNames):
     response = send_messages(client, model, registry, messages, ToolNames,0)
     # todo, feedback loop model(langchain)
     logging.info(response)
-    if response.tool_calls:
+    if response.tool_calls and registry.support_functionCall():
         for tool_call in response.tool_calls:
             func1_name = tool_call.function.name
             func1_args = tool_call.function.arguments
