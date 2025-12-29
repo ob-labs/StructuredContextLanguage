@@ -11,7 +11,10 @@ from scl.meta.base import Capability
 class Skill(Capability):
     def __init__(self, 
                  SkillProperties: SkillProperties):
-        self._original_body_dict = SkillProperties.metadata.copy()
+        if SkillProperties.metadata:
+            self._original_body_dict = SkillProperties.metadata.copy()
+        else:
+            self._original_body_dict = {}
         original_body = json.dumps(self._original_body_dict, ensure_ascii=False, indent=2)
         
         super().__init__(

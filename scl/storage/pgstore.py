@@ -10,7 +10,6 @@ sys.path.append(scl_root)
 from scl.trace import tracer
 from scl.storage.base import StoreBase
 from scl.meta.base import Capability
-from scl.embeddings.impl import embed
 Vector = None
 register_vector_info = None
 try:

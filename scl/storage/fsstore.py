@@ -5,6 +5,7 @@ from scl.meta.skills_ref.parser import read_properties
 from scl.storage.base import StoreBase
 from scl.meta.skill import Skill
 import numpy as np
+from scl.trace import tracer
 
 class fsstore(StoreBase):
     def __init__(self, path, init):
@@ -22,6 +23,7 @@ class fsstore(StoreBase):
     def load_skill(self,item):
         try:
             skill_props = read_properties(item)
+            logging.info(skill_props)
             capability = Skill(skill_props)
             self._skill_embedding_cache[str(item)] = {
                     "Capability": capability

@@ -1,5 +1,6 @@
 import os
 import time
+import logging
 from openai import OpenAI
 from scl.trace import tracer
 from functools import lru_cache
@@ -37,6 +38,7 @@ class OpenAIEmbedding:
             list: The embedding vector.
         """
         time.sleep(5)  # to avoid timeout
+        logging.info(f"Embedding text: {text}")
         text = text.replace("\n", " ")
         return (
             self.client.embeddings.create(input=[text], model=self.model, dimensions=self.embedding_dims)
