@@ -5,11 +5,8 @@ from scl.trace import tracer
 @tracer.start_as_current_span("send_messages")
 def send_messages(client, model, registry, messages, ToolNames, Turns):
     if Turns == 0: 
-        tools_named = registry.getToolsByNames(ToolNames)
-        tools_autonomy = registry.getTools(messages[0]['content'])
-        ## if registry support_functionCall?
-        if not registry.support_functionCall():
-            exit("registry not support functionCall")
+        tools_named = registry.getCapsByNames(ToolNames)
+        tools_autonomy = registry.getCapsBySimilarity(messages[0]['content'])
         ## where is learn from history? 自适应
             ## 基于规则learn
                 ## 比如正则表达式
@@ -21,9 +18,11 @@ def send_messages(client, model, registry, messages, ToolNames, Turns):
         tools = []
         ## todo 去重
         for tool in tools_named:
-            tools.append(tool)
+            logging.info(tool)
+            tools.append(tool['desc'])
         for tool in tools_autonomy:
-            tools.append(tool)
+            logging.info(tool)
+            tools.append(tool['desc'])
         logging.info(tools)
         response = client.chat.completions.create(
             model=model,
@@ -43,13 +42,13 @@ def function_call_playground(client, model, registry, messages, ToolNames):
     response = send_messages(client, model, registry, messages, ToolNames,0)
     # todo, feedback loop model(langchain)
     logging.info(response)
-    if response.tool_calls and registry.support_functionCall():
+    if response.tool_calls:
         for tool_call in response.tool_calls:
             func1_name = tool_call.function.name
             func1_args = tool_call.function.arguments
             logging.info(f"func1_name: {func1_name}, func1_args: {func1_args}")
             args_dict = json.loads(func1_args)
-            func1_out = registry.call_function_safe(func1_name,args_dict)
+            func1_out = registry.call_cap_safe(func1_name,args_dict)
 
             messages.append(response)
             messages.append({

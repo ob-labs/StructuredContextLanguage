@@ -16,30 +16,34 @@ logging.basicConfig(
 # Add the parent directory to the path to enable imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from scl.function_reg import FunctionRegistry
+from scl.cap_reg import CapRegistry
 from scl.embeddings.impl import OpenAIEmbedding
-from scl.storage.skillstore import SkillStore
+from scl.storage.fsstore import fsstore
 from scl.llm_chat import function_call_playground
 
-client = OpenAI(
-    api_key=os.getenv("API_KEY",""),
-    base_url=os.getenv("BASE_URL","")
-)
-model = os.getenv("MODEL","")
 
-skill_set = SkillStore(
-            folder="./scl/storage/skills/skills",
-            init=False, # for 1st run, please set to True to make you a cache.
-            embedding_service=OpenAIEmbedding()
-        )
-registry = FunctionRegistry(skill_set)
-## Test with chat
-### Function call Autonomy by RAG
-# | Case number | File format | Context RAG | Memory | Function call | 
-# | 0 | n/A | n/A | n/A | n/A |
-messages = [{'role': 'user', 'content': "Creating algorithmic art using p5.js with seeded randomness and interactive parameter exploration."}]
-print(function_call_playground(client, model, registry, messages, []))
-## case ? test with function call with hit
-# | ? | n/A | n/A | n/A | Autonomy |
-messages = [{'role': 'user', 'content': "用中文回答：9.11和9.9，哪个小?"}]
-print(function_call_playground(client, model, registry, messages, []))
+def test():
+    client = OpenAI(
+        api_key=os.getenv("API_KEY",""),
+        base_url=os.getenv("BASE_URL","")
+    )
+    model = os.getenv("MODEL","")
+
+    caps = fsstore(
+                path="./scl/storage/skills/skills",
+                init=False, # for 1st run, please set to True to make you a cache.
+            )
+    registry = CapRegistry(caps)
+    ## Test with chat
+    ### Function call Autonomy by RAG
+    # | Case number | File format | Context RAG | Memory | Function call | 
+    # | 0 | n/A | n/A | n/A | n/A |
+    messages = [{'role': 'user', 'content': "Creating algorithmic art using p5.js with seeded randomness and interactive parameter exploration."}]
+    print(function_call_playground(client, model, registry, messages, []))
+    ## case ? test with function call with hit
+    # | ? | n/A | n/A | n/A | Autonomy |
+    messages = [{'role': 'user', 'content': "用中文回答：9.11和9.9，哪个小?"}]
+    print(function_call_playground(client, model, registry, messages, []))
+
+if __name__ == "__main__":
+    test()
