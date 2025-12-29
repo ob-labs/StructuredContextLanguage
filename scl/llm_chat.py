@@ -18,9 +18,9 @@ def send_messages(client, model, registry, messages, ToolNames, Turns):
         tools = []
         ## todo 去重
         for tool in tools_named:
-            tools.append(tool)
+            tools.append(tool['desc'])
         for tool in tools_autonomy:
-            tools.append(tool)
+            tools.append(tool['desc'])
         logging.info(tools)
         response = client.chat.completions.create(
             model=model,

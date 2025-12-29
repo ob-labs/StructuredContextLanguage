@@ -11,8 +11,17 @@ from scl.trace import tracer
 from scl.storage.base import StoreBase
 from scl.meta.base import Capability
 from scl.embeddings.impl import embed
-from pgvector import Vector
-from pgvector.psycopg2 import register_vector_info
+Vector = None
+register_vector_info = None
+try:
+    from pgvector import Vector
+    from pgvector.psycopg2 import register_vector_info
+    logging.info("pgvector imported successfully")
+except ImportError as e:
+    logging.info(f"Warning: pgvector not installed or import failed: {e}")
+    Vector = None
+    register_vector_info = None
+
 
 class PgVectorStore(StoreBase):
     def __init__(self, dbname="postgres", user="postgres", password="your_password", 
@@ -39,7 +48,6 @@ class PgVectorStore(StoreBase):
         """连接到数据库"""
         try:
             self.conn = psycopg2.connect(**self.db_params)
-            # Register vector type if available
             if Vector is not None:
                 try:
                     # Try to register vector type
@@ -56,6 +64,7 @@ class PgVectorStore(StoreBase):
             logging.info(f"连接失败: {e}")
             logging.info("请确保PostgreSQL已安装并运行")
             sys.exit(1)
+
     
     def close(self):
         """关闭数据库连接"""
@@ -121,7 +130,7 @@ class PgVectorStore(StoreBase):
                 embedding_description vector({embedding_dims}),
                 original_body TEXT NOT NULL,
                 llm_description JSONB NOT NULL,
-                function_impl TEXT NOT NULL,
+                function_impl TEXT NOT NULL
             );
             """
             
@@ -160,8 +169,7 @@ class PgVectorStore(StoreBase):
         """
         try:                                    
             # 生成description的嵌入向量
-            embedding = Vector(cap.embedding_description)
-            
+            #embedding = Vector(cap.embedding_description)
             cursor = self.conn.cursor()
             
             insert_sql = """
@@ -170,7 +178,7 @@ class PgVectorStore(StoreBase):
             RETURNING id;
             """
             
-            cursor.execute(insert_sql, (cap.name, cap.description, embedding, cap.original_body, cap.llm_description, cap.function_impl))
+            cursor.execute(insert_sql, (cap.name, cap.description, cap.embedding_description, cap.original_body, cap.llm_description, cap.function_impl))
             cap_id = cursor.fetchone()[0]
             
             self.conn.commit()
@@ -195,7 +203,10 @@ class PgVectorStore(StoreBase):
             cursor = self.conn.cursor()
             
             select_sql = """
-            SELECT function_impl
+            SELECT 
+                name,
+                llm_description,
+                function_impl
             FROM capabilities
             WHERE name = %s;
             """
@@ -204,9 +215,11 @@ class PgVectorStore(StoreBase):
             result = cursor.fetchall()
             
             cursor.close()
-            
+
             if result:
-                return result
+                row = result[0]
+                llm_desc = json.loads(row[1]) if row[1] else {}
+                return [{"name":row[0],"desc":llm_desc,"function_impl":row[2]}]
             else:
                 logging.info(f"未找到名为 '{name}' 的能力")
                 return []
@@ -216,11 +229,10 @@ class PgVectorStore(StoreBase):
             return []
     
     @tracer.start_as_current_span("search_by_similarity")
-    def search_by_similarity(self, query_text, limit=5, min_similarity=0.5):
+    def search_by_similarity(self, query_embedding, limit=5, min_similarity=0.5):
         """根据描述相似度查询函数"""
         try:
-            # 为查询文本生成嵌入向量
-            query_embedding = embed(query_text)
+            # 为查询文本生成嵌入向量)
             cursor = self.conn.cursor()
             
             search_sql = """
