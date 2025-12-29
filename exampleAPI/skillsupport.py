@@ -31,7 +31,7 @@ def test():
 
     caps = fsstore(
                 path="./scl/storage/skills/skills",
-                init=True, # for 1st run, please set to True to make you a cache.
+                init=False, # for 1st run, please set to True to make you a cache.
             )
     registry = CapRegistry(caps)
     ## Test with chat

@@ -86,17 +86,17 @@ class fsstore(StoreBase):
     def get_cap_by_name(self, name):
         for path, data in self._skill_embedding_cache.items():
             if data["Capability"].name == name:
-                return data["Capability"]
+                return [{"name": data["Capability"].name, "desc": data["Capability"].description, "path": path}]
         return None
 
     @tracer.start_as_current_span("search_by_similarity")
     def search_by_similarity(self, query_embedding, limit=5, min_similarity=0.5):
-        result = {}
+        result = []
         for path, data in self._skill_embedding_cache.items():
             skill_embedding = data["Capability"].embedding_description
             similarity = self.cosine_similarity(query_embedding, skill_embedding)
             if similarity >= min_similarity:
-                result[path] = data
+                result.append({"name": data["Capability"].name, "desc": data["Capability"].description, "path": path})
             if len(result) >= limit:
                 break
         return result
