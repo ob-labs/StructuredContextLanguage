@@ -13,13 +13,14 @@ class Capability(ABC):
                  name: str,
                  description: str,
                  original_body: str,
+                 type: str,
                  llm_description: Optional[str] = None,
                  function_impl: Optional[str] = None):
         self._name = name
         self._description = description
         self._embedding_description = embed(self._description)
         self._original_body = original_body
-        
+        self._type = type
         self._llm_description = llm_description
         self._function_impl = function_impl
 
@@ -42,6 +43,11 @@ class Capability(ABC):
     def embedding_description(self):
         """函数描述 实际用于RAG渐进式加载"""
         return self._embedding_description
+
+    @property
+    def type(self) -> str:
+        """实现类型"""
+        return self._type
 
     @property
     def llm_description(self) -> Optional[str]:
