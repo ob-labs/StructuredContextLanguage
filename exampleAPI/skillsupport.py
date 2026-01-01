@@ -33,17 +33,17 @@ def test():
                 path="./scl/storage/skills/skills",
                 init=False, # for 1st run, please set to True to make you a cache.
             )
-    registry = CapRegistry(caps)
+    cap_registry = CapRegistry(caps)
     ## Test with chat
     ### Function call Autonomy by RAG
     # | Case number | File format | Context RAG | Memory | Function call | 
     # | 0 | n/A | n/A | n/A | n/A |
     messages = [{'role': 'user', 'content': "Creating algorithmic art using p5.js with seeded randomness and interactive parameter exploration."}]
-    print(function_call_playground(client, model, registry, messages, []))
+    print(function_call_playground(client, model, cap_registry, [], messages))
     ## case ? test with function call with hit
     # | ? | n/A | n/A | n/A | Autonomy |
     messages = [{'role': 'user', 'content': "用中文回答：9.11和9.9，哪个小?"}]
-    print(function_call_playground(client, model, registry, messages, []))
+    print(function_call_playground(client, model, cap_registry, [], messages))
 
 if __name__ == "__main__":
     test()

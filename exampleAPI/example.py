@@ -31,7 +31,7 @@ def test():
                 port="5432",
                 init=True
             )
-    registry = CapRegistry(caps)
+    cap_registry = CapRegistry(caps)
 
     ## Function Reg
     caps.insert_capability(FunCallAdd)
@@ -43,19 +43,39 @@ def test():
     # | Case number | File format | Context RAG | Memory | Function call | 
     # | 0 | n/A | n/A | n/A | n/A |
     messages = [{'role': 'user', 'content': "用中文回答：单词strawberry中有多少个字母r?"}]
-    print(function_call_playground(client, model, registry, messages, []))
+    print(function_call_playground(client, model, cap_registry,[], messages))
     ## case ? test with function call with hit
     # | ? | n/A | n/A | n/A | Autonomy |
     messages = [{'role': 'user', 'content': "用中文回答：9.11和9.9，哪个小?"}]
-    print(function_call_playground(client, model, registry, messages, []))
+    print(function_call_playground(client, model, cap_registry,[], messages))
 
     ### Function call Autonomy by RAG + User specific
     ## case 6 test with function call with hit
     # | 6 | n/A | by config | n/A | by config |
     messages = [{'role': 'user', 'content': "用中文回答：单词strawberry中有多少个字母r?"}]
-    print(function_call_playground(client, model, registry, messages, ["count_letter"]))
+    print(function_call_playground(client, model, cap_registry,["count_letter"], messages))
     messages = [{'role': 'user', 'content': "用中文回答：9.11和9.9，哪个小?"}]
-    print(function_call_playground(client, model, registry, messages, ["compare"]))
+    print(function_call_playground(client, model, cap_registry,["compare"], messages))
+
+    ## cap_registry.learn_by_count()
+    # | Case number | File format | Context RAG | Memory | Function call | 
+    # | 0 | n/A | n/A | n/A | n/A |
+    #messages = [{'role': 'user', 'content': "用中文回答：单词strawberry中有多少个字母r?"}]
+    #print(function_call_playground(client, model, cap_registry,[], messages))
+    ## case ? test with function call with hit
+    # | ? | n/A | n/A | n/A | Autonomy |
+    #messages = [{'role': 'user', 'content': "用中文回答：9.11和9.9，哪个小?"}]
+    #print(function_call_playground(client, model, cap_registry,[], messages))
+
+    ## cap_registry.learn_by_rag()
+    # | Case number | File format | Context RAG | Memory | Function call | 
+    # | 0 | n/A | n/A | n/A | n/A |
+    #messages = [{'role': 'user', 'content': "用中文回答：单词strawberry中有多少个字母r?"}]
+    #print(function_call_playground(client, model, cap_registry,[], messages))
+    ## case ? test with function call with hit
+    # | ? | n/A | n/A | n/A | Autonomy |
+    #messages = [{'role': 'user', 'content': "用中文回答：9.11和9.9，哪个小?"}]
+    #print(function_call_playground(client, model, cap_registry,[], messages))
 
 if __name__ == "__main__":
     test()
