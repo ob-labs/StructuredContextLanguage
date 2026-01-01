@@ -126,6 +126,7 @@ class PgVectorStore(StoreBase):
                 id SERIAL PRIMARY KEY,
                 name VARCHAR(255) NOT NULL UNIQUE,
                 description TEXT NOT NULL UNIQUE,
+                type VARCHAR(255) NOT NULL UNIQUE,
                 embedding_description vector({embedding_dims}),
                 original_body TEXT NOT NULL,
                 llm_description JSONB NOT NULL,
@@ -172,12 +173,12 @@ class PgVectorStore(StoreBase):
             cursor = self.conn.cursor()
             
             insert_sql = """
-            INSERT INTO capabilities (name, description, embedding_description, original_body, llm_description, function_impl)
-            VALUES (%s, %s, %s, %s, %s::jsonb, %s)
+            INSERT INTO capabilities (name, description, type, embedding_description, original_body, llm_description, function_impl)
+            VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s)
             RETURNING id;
             """
             
-            cursor.execute(insert_sql, (cap.name, cap.description, cap.embedding_description, cap.original_body, cap.llm_description, cap.function_impl))
+            cursor.execute(insert_sql, (cap.name, cap.description, cap.type, cap.embedding_description, cap.original_body, cap.llm_description, cap.function_impl))
             cap_id = cursor.fetchone()[0]
             
             self.conn.commit()
@@ -204,6 +205,7 @@ class PgVectorStore(StoreBase):
             select_sql = """
             SELECT 
                 name,
+                type,
                 llm_description,
                 function_impl
             FROM capabilities
@@ -217,8 +219,8 @@ class PgVectorStore(StoreBase):
 
             if result:
                 row = result[0]
-                llm_desc = json.loads(row[1]) if row[1] else {}
-                return [{"name":row[0],"desc":llm_desc,"function_impl":row[2]}]
+                llm_desc = json.loads(row[2]) if row[2] else {}
+                return [{"name":row[0],"type":row[1],"desc":llm_desc,"function_impl":row[3]}]
             else:
                 logging.info(f"未找到名为 '{name}' 的能力")
                 return []
@@ -237,6 +239,7 @@ class PgVectorStore(StoreBase):
             search_sql = """
             SELECT 
                 name,
+                type,
                 llm_description,
                 1 - (embedding_description <=> %s::vector) as similarity
             FROM capabilities
@@ -253,14 +256,14 @@ class PgVectorStore(StoreBase):
                 similar_functions = []
                 for row in results:
                     try:
-                        llm_desc = json.loads(row[1]) if row[1] else {}
+                        llm_desc = json.loads(row[2]) if row[2] else {}
                     except:
-                        llm_desc = row[1]
-                    if float(row[2]) < min_similarity:
-                        logging.info(f"{row[0]} 相似度 {row[2]} 低于阈值 {min_similarity}")
+                        llm_desc = row[2]
+                    if float(row[3]) < min_similarity:
+                        logging.info(f"{row[0]} 相似度 {row[3]} 低于阈值 {min_similarity}")
                         continue
                     # 解析llm_description JSON
-                    similar_functions.append({"name":row[0],"desc":llm_desc})
+                    similar_functions.append({"name":row[0],"type":row[1],"desc":llm_desc})
                 
                 logging.info(f"找到 {len(similar_functions)} 个相似函数")
                 return similar_functions

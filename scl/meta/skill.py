@@ -21,6 +21,7 @@ class Skill(Capability):
             name=SkillProperties.name,
             description=SkillProperties.description,
             original_body=original_body,
+            type="skill",
             llm_description=None,  # tbd
             function_impl=None    # tbd
         )
