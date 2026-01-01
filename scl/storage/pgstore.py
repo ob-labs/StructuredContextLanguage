@@ -174,7 +174,7 @@ class PgVectorStore(StoreBase):
             
             insert_sql = """
             INSERT INTO capabilities (name, description, type, embedding_description, original_body, llm_description, function_impl)
-            VALUES (%s, %s, %s, %s, %s::jsonb, %s)
+            VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s)
             RETURNING id;
             """
             

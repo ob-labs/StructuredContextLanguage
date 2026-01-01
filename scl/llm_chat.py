@@ -33,6 +33,7 @@ def send_messages(
         #    if tool['type'] != "skill":
         #        tools.append(tool['desc'])
         logging.info(tools)
+        logging.info(messages)
         response = client.chat.completions.create(
             model=model,
             messages=messages,
@@ -52,7 +53,7 @@ def function_call_playground(
     cap_registry,ToolNames,
     messages
     ): 
-    turns = 0   
+    turns = 0
     response = send_messages(client, model, cap_registry, ToolNames, messages,turns)
     # todo, feedback loop model(langchain)
     turns += 1
