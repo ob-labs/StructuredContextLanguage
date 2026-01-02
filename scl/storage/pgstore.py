@@ -126,7 +126,7 @@ class PgVectorStore(StoreBase):
                 id SERIAL PRIMARY KEY,
                 name VARCHAR(255) NOT NULL UNIQUE,
                 description TEXT NOT NULL UNIQUE,
-                type VARCHAR(255) NOT NULL UNIQUE,
+                type VARCHAR(255) NOT NULL,
                 embedding_description vector({embedding_dims}),
                 original_body TEXT NOT NULL,
                 llm_description JSONB NOT NULL,
@@ -177,7 +177,7 @@ class PgVectorStore(StoreBase):
             VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s)
             RETURNING id;
             """
-            
+            logging.info(f"Inserting function: {cap.name}, {cap.description}, {cap.type}, {cap.original_body}, {cap.function_impl}")
             cursor.execute(insert_sql, (cap.name, cap.description, cap.type, cap.embedding_description, cap.original_body, cap.llm_description, cap.function_impl))
             cap_id = cursor.fetchone()[0]
             
@@ -188,7 +188,7 @@ class PgVectorStore(StoreBase):
             return cap_id
             
         except psycopg2.errors.UniqueViolation as e:
-            logging.info(f"函数名 '{cap.name}' 已存在（唯一约束违规）")
+            logging.info(f"函数名 '{cap.name}' 已存在（唯一约束违规）{e}")
             self.conn.rollback()
             return None
         except Exception as e:
@@ -219,7 +219,11 @@ class PgVectorStore(StoreBase):
 
             if result:
                 row = result[0]
-                llm_desc = json.loads(row[2]) if row[2] else {}
+                logging.info(row)
+                try:
+                    llm_desc = json.loads(row[2]) if row[2] else {}
+                except:
+                    llm_desc = row[2]
                 return [{"name":row[0],"type":row[1],"desc":llm_desc,"function_impl":row[3]}]
             else:
                 logging.info(f"未找到名为 '{name}' 的能力")

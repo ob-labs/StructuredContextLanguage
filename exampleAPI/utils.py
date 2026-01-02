@@ -1,4 +1,3 @@
-## todo: refactor, this file stores functions for now.
 from scl.meta.functioncall import FunctionCall
 import json
 def add(a: float, b: float):

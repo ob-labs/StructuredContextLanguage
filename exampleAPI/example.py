@@ -13,8 +13,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from scl.cap_reg import CapRegistry
 from scl.storage.pgstore import PgVectorStore
 from scl.llm_chat import function_call_playground
-from scl.utils import *
-
+# Import utils functions - adding current directory to path for relative imports
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from utils import *
 
 def test():
     client = OpenAI(

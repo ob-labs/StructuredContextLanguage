@@ -8,7 +8,6 @@ scl_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(scl_root)
 from scl.embeddings.impl import embed
 from scl.trace import tracer
-from scl.utils import *
 from scl.storage.base import StoreBase
 
 class CapRegistry:
@@ -20,14 +19,6 @@ class CapRegistry:
             StoreBase: An instance of any StoreBase implementation
         """
         self.cap_store = StoreBase
-        ## todo remove this
-        # Function registry
-        self.FUNCTION_REGISTRY = {
-            'add': add,
-            'mul': mul, 
-            'compare': compare,
-            'count_letter': count_letter
-        }
     
     ## RAG search between context and function description after embedding
     ## Return function in openAI tool format
@@ -40,6 +31,7 @@ class CapRegistry:
         for tool_name in ToolNames:
             logging.info(f"Searching for function: {tool_name}")
             function = self.cap_store.get_cap_by_name(tool_name)
+            logging.info(f"Function: {function}")
             if function:
                 functions.append(function[0])
         return functions
@@ -56,18 +48,31 @@ class CapRegistry:
     
     @tracer.start_as_current_span("call_function_safe")
     def call_cap_safe(self, func_name: str, args_dict=None):
-        ## todo replace by https://github.com/langchain-ai/langchain-sandbox
-        ### get function body from reg
-        ### get function name
-        ### get function var
-        ### invoke langchain-sandbox
-        """
-        Safely call a function through the registry
-        """
-        func = self.FUNCTION_REGISTRY.get(func_name)
-        
-        if func is None:
-            raise ValueError(f"Function '{func_name}' is not registered or does not exist")
-        
-        # Call function
+        ## todo replace by https://github.com/langchain-ai/langchain-sandbox?
+        """动态创建函数并执行"""
+        # 定义函数
+        cap = self.getCapsByNames([func_name])[0]
+        logging.info(f"Cap: {cap}")
+        func_code = cap["function_impl"]
+        #func_def = f"""
+        #def dynamic_func({', '.join(args_dict.keys())}):
+        #    {func_code}
+        #"""
+        # 执行函数定义
+        #local_vars = {}
+        #logging.info(f"args_dict: {args_dict}")
+        #logging.info(f"func_def: {func_def}")
+        #exec(func_def, globals(), local_vars)
+        # 或者使用更简单的版本：
+        func_lines = [f"def dynamic_func({', '.join(args_dict.keys())}):"]
+        func_lines.extend([f"    {line}" for line in func_code.split('\n')])
+        func_def = '\n'.join(func_lines)
+
+        # 执行函数定义
+        local_vars = {}
+        logging.info(f"args_dict: {args_dict}")
+        logging.info(f"func_def: {func_def}")
+        exec(func_def, globals(), local_vars)   
+        # 获取函数并执行
+        func = local_vars['dynamic_func']
         return func(**args_dict)
