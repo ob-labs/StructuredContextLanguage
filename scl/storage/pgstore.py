@@ -7,10 +7,10 @@ import logging
 scl_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(scl_root)
 from scl.meta.msg import Msg
-
+from typing import List
 from scl.trace import tracer
 from scl.storage.base import StoreBase
-from scl.meta.base import Capability
+from scl.meta.capability import Capability
 Vector = None
 register_vector_info = None
 try:
@@ -198,7 +198,7 @@ class PgVectorStore(StoreBase):
             return None
 
     @tracer.start_as_current_span("get_cap_by_name")
-    def get_cap_by_name(self, name):
+    def get_cap_by_name(self, name)-> Capability:
         """根据函数名查询"""
         try:
             cursor = self.conn.cursor()
@@ -225,17 +225,18 @@ class PgVectorStore(StoreBase):
                     llm_desc = json.loads(row[2]) if row[2] else {}
                 except:
                     llm_desc = row[2]
-                return [{"name":row[0],"type":row[1],"desc":llm_desc,"function_impl":row[3]}]
+                return Capability(name=row[0], type=row[1], llm_description=llm_desc, function_impl=row[3])
+                #[{"name":row[0],"type":row[1],"desc":llm_desc,"function_impl":row[3]}]
             else:
                 logging.info(f"未找到名为 '{name}' 的能力")
-                return []
+                return None
             
         except Exception as e:
             logging.info(f"查询失败: {e}")
-            return []
+            return None
     
     @tracer.start_as_current_span("search_by_similarity")
-    def search_by_similarity(self, msg:Msg, limit=5, min_similarity=0.5):
+    def search_by_similarity(self, msg:Msg, limit=5, min_similarity=0.5)-> List[Capability]:
         """根据描述相似度查询函数"""
         try:
             # 为查询文本生成嵌入向量)
@@ -268,7 +269,8 @@ class PgVectorStore(StoreBase):
                         logging.info(f"{row[0]} 相似度 {row[3]} 低于阈值 {min_similarity}")
                         continue
                     # 解析llm_description JSON
-                    similar_functions.append({"name":row[0],"type":row[1],"desc":llm_desc})
+                    similar_functions.append(Capability(name=row[0], type=row[1], llm_description=llm_desc))
+                    #similar_functions.append({"name":row[0],"type":row[1],"desc":llm_desc})
                 
                 logging.info(f"找到 {len(similar_functions)} 个相似函数")
                 return similar_functions

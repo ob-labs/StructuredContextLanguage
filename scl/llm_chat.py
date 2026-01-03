@@ -25,12 +25,11 @@ def send_messages(
         tools = []
         ## todo 去重
         for tool in tools_named:
-            if tool['type'] != "skill":
-                tools.append(tool['desc'])
-            tools.append(tool['desc'])
+            if tool.type != "skill":
+                tools.append(tool.llm_description)
         for tool in tools_autonomy:
-            if tool['type'] != "skill":
-                tools.append(tool['desc'])
+            if tool.type != "skill":
+                tools.append(tool.llm_description)
         #for tool in tools_history:
         #    if tool['type'] != "skill":
         #        tools.append(tool['desc'])

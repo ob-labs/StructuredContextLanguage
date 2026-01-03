@@ -1,12 +1,14 @@
 from pathlib import Path
 import logging
 import pickle
+from scl.meta.capability import Capability
 from scl.meta.skills_ref.parser import read_properties
 from scl.storage.base import StoreBase
 from scl.meta.skill import Skill
 import numpy as np
 from scl.trace import tracer
 from scl.meta.msg import Msg
+from typing import List
 
 class fsstore(StoreBase):
     def __init__(self, path, init):
@@ -84,15 +86,16 @@ class fsstore(StoreBase):
         self._save_cache_to_disk()
 
     @tracer.start_as_current_span("get_cap_by_name")
-    def get_cap_by_name(self, name):
+    def get_cap_by_name(self, name)-> Capability:
         for path, data in self._skill_embedding_cache.items():
             cur = data["Capability"]
             if cur.name == name:
-                return [{"name":cur.name,"type":cur.type, "desc": cur.description, "path": path}]
+                return Capability(name=cur.name, type=cur.type, description=cur.description)# , path=path
+                #[{"name":cur.name,"type":cur.type, "desc": cur.description, "path": path}]
         return None
 
     @tracer.start_as_current_span("search_by_similarity")
-    def search_by_similarity(self, msg: Msg, limit=5, min_similarity=0.5):
+    def search_by_similarity(self, msg: Msg, limit=5, min_similarity=0.5) -> List[Capability]:
         result = []
         for path, data in self._skill_embedding_cache.items():
             skill_embedding = data["Capability"].embedding_description
@@ -100,7 +103,8 @@ class fsstore(StoreBase):
             similarity = self.cosine_similarity(query_embedding, skill_embedding)
             if similarity >= min_similarity:
                 cur = data["Capability"]
-                result.append({"name":cur.name,"type":cur.type, "desc": cur.description, "path": path})
+                result.append(Capability(name=cur.name, type=cur.type, description=cur.description))# , path=path)
+                    #{"name":cur.name,"type":cur.type, "desc": cur.description, "path": path})
             if len(result) >= limit:
                 break
         return result

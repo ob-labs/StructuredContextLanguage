@@ -1,10 +1,12 @@
 from abc import ABC, abstractmethod
 from scl.meta.msg import Msg
+from scl.meta.capability import Capability
+from typing import List
 
 class StoreBase(ABC):
     
     @abstractmethod
-    def get_cap_by_name(self, name):
+    def get_cap_by_name(self, name) -> Capability:
         """
         Retrieve a capability by its name.
         
@@ -17,7 +19,7 @@ class StoreBase(ABC):
         pass
     
     @abstractmethod
-    def search_by_similarity(self, msg:Msg, limit=5, min_similarity=0.5):
+    def search_by_similarity(self, msg:Msg, limit=5, min_similarity=0.5) -> List[Capability]:
         """
         Search for similar items based on embedding similarity.
         

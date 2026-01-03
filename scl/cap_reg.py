@@ -2,6 +2,7 @@ import sys
 import os
 import logging
 from typing import List
+from scl.meta.capability import Capability
 
 # Add the StructuredContextLanguage directory to the path
 scl_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -22,24 +23,30 @@ class CapRegistry:
     
     ## RAG search between context and function description after embedding
     ## Return function in openAI tool format
+    ## the only diff between this class and basestore are getCapsByNames and call_cap_safe?
     @tracer.start_as_current_span("getCapsByNames")
-    def getCapsByNames(self, ToolNames: List[str]):
+    def getCapsByNames(self, ToolNames: List[str]) -> List[Capability]:
         functions = []
         if self.cap_store is None:
             logging.info("Database not initialized. Cannot perform similarity search.")
             return []
         for tool_name in ToolNames:
             logging.info(f"Searching for function: {tool_name}")
-            function = self.cap_store.get_cap_by_name(tool_name)
+            function = self.get_cap_by_name(tool_name)
             logging.info(f"Function: {function}")
             if function:
-                functions.append(function[0])
+                functions.append(function)
         return functions
     
+    ## make this class fits basestore interface
+    @tracer.start_as_current_span("getCapsByName")
+    def get_cap_by_name(self, name)-> Capability:
+        return self.cap_store.get_cap_by_name(name)
+
     ## RAG search between context and function description after embedding
     ## Return function in openAI tool format
     @tracer.start_as_current_span("getCapsBySimilarity")
-    def getCapsBySimilarity(self, msg: Msg, limit=5, min_similarity=0.5):
+    def getCapsBySimilarity(self, msg: Msg, limit=5, min_similarity=0.5) -> List[Capability]:
         return self.cap_store.search_by_similarity(msg, limit, min_similarity)
     
     @tracer.start_as_current_span("invoke_cap_safe")
@@ -47,9 +54,9 @@ class CapRegistry:
         ## todo replace by https://github.com/langchain-ai/langchain-sandbox?
         """动态创建函数并执行"""
         # 定义函数
-        cap = self.getCapsByNames([cap_name])[0]
+        cap = self.get_cap_by_name(cap_name)
         logging.info(f"Cap: {cap}")
-        func_code = cap["function_impl"]
+        func_code = cap.function_impl
         #func_def = f"""
         #def dynamic_func({', '.join(args_dict.keys())}):
         #    {func_code}
