@@ -17,7 +17,6 @@ logging.basicConfig(
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from scl.cap_reg import CapRegistry
-from scl.embeddings.impl import OpenAIEmbedding
 from scl.storage.fsstore import fsstore
 from scl.llm_chat import function_call_playground
 

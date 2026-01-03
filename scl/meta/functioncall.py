@@ -1,6 +1,6 @@
 from typing import Optional
 from scl.embeddings.impl import embed
-from scl.meta.base import Capability
+from scl.meta.capability import Capability
 
 class FunctionCall(Capability):
     def __init__(self, 

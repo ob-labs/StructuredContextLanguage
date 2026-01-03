@@ -6,7 +6,7 @@ import json
 from typing import Dict, Optional
 from scl.embeddings.impl import embed
 from scl.meta.skills_ref.parser import SkillProperties
-from scl.meta.base import Capability
+from scl.meta.capability import Capability
 
 class Skill(Capability):
     def __init__(self, 

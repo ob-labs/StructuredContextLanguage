@@ -6,9 +6,9 @@ from typing import List
 # Add the StructuredContextLanguage directory to the path
 scl_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(scl_root)
-from scl.embeddings.impl import embed
 from scl.trace import tracer
 from scl.storage.base import StoreBase
+from scl.meta.msg import Msg
 
 class CapRegistry:
     def __init__(self, StoreBase: StoreBase):
@@ -39,19 +39,15 @@ class CapRegistry:
     ## RAG search between context and function description after embedding
     ## Return function in openAI tool format
     @tracer.start_as_current_span("getCapsBySimilarity")
-    def getCapsBySimilarity(self, context: str, limit=5, min_similarity=0.5):
-        if self.cap_store is None:
-            logging.info("Database not initialized. Cannot perform similarity search.")
-            return []
-        embedding = embed(context)
-        return self.cap_store.search_by_similarity(embedding, limit, min_similarity)
+    def getCapsBySimilarity(self, msg: Msg, limit=5, min_similarity=0.5):
+        return self.cap_store.search_by_similarity(msg, limit, min_similarity)
     
-    @tracer.start_as_current_span("call_function_safe")
-    def call_cap_safe(self, func_name: str, args_dict=None):
+    @tracer.start_as_current_span("invoke_cap_safe")
+    def call_cap_safe(self, cap_name: str, args_dict=None):
         ## todo replace by https://github.com/langchain-ai/langchain-sandbox?
         """动态创建函数并执行"""
         # 定义函数
-        cap = self.getCapsByNames([func_name])[0]
+        cap = self.getCapsByNames([cap_name])[0]
         logging.info(f"Cap: {cap}")
         func_code = cap["function_impl"]
         #func_def = f"""
@@ -76,3 +72,7 @@ class CapRegistry:
         # 获取函数并执行
         func = local_vars['dynamic_func']
         return func(**args_dict)
+
+    @tracer.start_as_current_span("record_cap_history_safe")
+    def record(self, msg: Msg, cap_name:str):
+        return self.cap_store.record(msg, cap_name)

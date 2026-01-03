@@ -6,6 +6,7 @@ import logging
 # Add the StructuredContextLanguage directory to the path
 scl_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(scl_root)
+from scl.meta.msg import Msg
 
 from scl.trace import tracer
 from scl.storage.base import StoreBase
@@ -234,12 +235,12 @@ class PgVectorStore(StoreBase):
             return []
     
     @tracer.start_as_current_span("search_by_similarity")
-    def search_by_similarity(self, query_embedding, limit=5, min_similarity=0.5):
+    def search_by_similarity(self, msg:Msg, limit=5, min_similarity=0.5):
         """根据描述相似度查询函数"""
         try:
             # 为查询文本生成嵌入向量)
             cursor = self.conn.cursor()
-            
+            query_embedding = msg.embed
             search_sql = """
             SELECT 
                 name,
@@ -278,3 +279,7 @@ class PgVectorStore(StoreBase):
         except Exception as e:
             logging.info(f"相似性搜索失败: {e}")
             return []
+
+    @tracer.start_as_current_span("record_cap_history_safe")
+    def record(self, msg:Msg, cap_name:str):
+        return

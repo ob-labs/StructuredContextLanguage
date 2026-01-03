@@ -6,6 +6,7 @@ from scl.storage.base import StoreBase
 from scl.meta.skill import Skill
 import numpy as np
 from scl.trace import tracer
+from scl.meta.msg import Msg
 
 class fsstore(StoreBase):
     def __init__(self, path, init):
@@ -91,10 +92,11 @@ class fsstore(StoreBase):
         return None
 
     @tracer.start_as_current_span("search_by_similarity")
-    def search_by_similarity(self, query_embedding, limit=5, min_similarity=0.5):
+    def search_by_similarity(self, msg: Msg, limit=5, min_similarity=0.5):
         result = []
         for path, data in self._skill_embedding_cache.items():
             skill_embedding = data["Capability"].embedding_description
+            query_embedding = msg.embed
             similarity = self.cosine_similarity(query_embedding, skill_embedding)
             if similarity >= min_similarity:
                 cur = data["Capability"]
@@ -102,6 +104,10 @@ class fsstore(StoreBase):
             if len(result) >= limit:
                 break
         return result
+
+    @tracer.start_as_current_span("record_cap_history_safe")
+    def record(self, msg: Msg, cap_name:str):
+        return
     
     def cosine_similarity(self, vec1, vec2):
         """

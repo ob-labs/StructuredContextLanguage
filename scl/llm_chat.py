@@ -1,17 +1,19 @@
 import json
 import logging
 from scl.trace import tracer
+from scl.cap_reg import CapRegistry
+from scl.meta.msg import Msg
 
 @tracer.start_as_current_span("send_messages")
 def send_messages(
         client, model, 
-        cap_registry, 
+        cap_registry:CapRegistry, 
         ToolNames, 
-        messages, 
+        msg:Msg, 
         Turns):
     if Turns == 0: 
         tools_named = cap_registry.getCapsByNames(ToolNames)
-        tools_autonomy = cap_registry.getCapsBySimilarity(messages[0]['content'])
+        tools_autonomy = cap_registry.getCapsBySimilarity(msg.embed)
         ## where is learn from history? 自适应
             ## 基于规则learn
                 ## 指标学习
@@ -33,28 +35,30 @@ def send_messages(
         #    if tool['type'] != "skill":
         #        tools.append(tool['desc'])
         logging.info(tools)
-        logging.info(messages)
+        logging.info(msg)
         response = client.chat.completions.create(
             model=model,
-            messages=messages,
+            messages=msg.messages,
             tools=tools
         )
         return response.choices[0].message
     else:
         response = client.chat.completions.create(
             model=model,
-            messages=messages
+            messages=msg.messages
                 )
         return response.choices[0].message
 
 @tracer.start_as_current_span("function_call_playground")
 def function_call_playground(
     client, model, 
-    cap_registry,ToolNames,
+    cap_registry:CapRegistry,
+    ToolNames,
     messages
     ): 
     turns = 0
-    response = send_messages(client, model, cap_registry, ToolNames, messages,turns)
+    msg = Msg(messages)
+    response = send_messages(client, model, cap_registry, ToolNames, msg, turns)
     # todo, feedback loop model(langchain)
     turns += 1
     logging.info(response)
@@ -65,13 +69,9 @@ def function_call_playground(
             logging.info(f"func1_name: {func1_name}, func1_args: {func1_args}")
             args_dict = json.loads(func1_args)
             func1_out = cap_registry.call_cap_safe(func1_name,args_dict)
-            # cap_registry.record(messages, func1_name)
+            cap_registry.record(msg.embed, func1_name)
 
-            messages.append(response)
-            messages.append({
-                'role': 'tool',
-                'content': f'{func1_out}',
-                'tool_call_id': tool_call.id
-             })
-        response = send_messages(client, model, cap_registry, ToolNames, messages,turns)
+            msg.append(response)
+            msg.append_cap_result(func1_out, tool_call.id)
+        response = send_messages(client, model, cap_registry, ToolNames, msg, turns)
     return response.content
