@@ -25,6 +25,8 @@ class OpenAIEmbedding:
         base_url = os.getenv("EMBEDDING_BASE_URL", "https://api.siliconflow.cn/v1")
 
         self.client = OpenAI(api_key=api_key, base_url=base_url)
+        # Check if API supports dimensions parameter (OpenAI supports it, SiliconFlow doesn't)
+        self.supports_dimensions = "openai.com" in base_url.lower()
         self._initialized = True
 
     @tracer.start_as_current_span("embed")
@@ -40,11 +42,16 @@ class OpenAIEmbedding:
         time.sleep(5)  # to avoid timeout
         logging.info(f"Embedding text: {text}")
         text = text.replace("\n", " ")
-        return (
-            self.client.embeddings.create(input=[text], model=self.model, dimensions=self.embedding_dims)
-            .data[0]
-            .embedding
-        )
+        
+        # Build parameters - only include dimensions if API supports it
+        params = {
+            "input": [text],
+            "model": self.model
+        }
+        if self.supports_dimensions:
+            params["dimensions"] = int(self.embedding_dims)
+        
+        return self.client.embeddings.create(**params).data[0].embedding
 
 # 创建全局函数
 @lru_cache(maxsize=1)

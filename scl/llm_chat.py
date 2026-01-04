@@ -35,11 +35,16 @@ def send_messages(
         #        tools.append(tool['desc'])
         logging.info(tools)
         logging.info(msg)
-        response = client.chat.completions.create(
-            model=model,
-            messages=msg.messages,
-            tools=tools
-        )
+        # Build request parameters - only include tools if not empty
+        # Some APIs (like DashScope) don't accept empty tools list
+        request_params = {
+            "model": model,
+            "messages": msg.messages
+        }
+        if tools:  # Only add tools parameter if tools list is not empty
+            request_params["tools"] = tools
+        
+        response = client.chat.completions.create(**request_params)
         return response.choices[0].message
     else:
         response = client.chat.completions.create(
