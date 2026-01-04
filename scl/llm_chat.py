@@ -66,8 +66,9 @@ def function_call_playground(
             func1_args = tool_call.function.arguments
             logging.info(f"func1_name: {func1_name}, func1_args: {func1_args}")
             args_dict = json.loads(func1_args)
-            func1_out = cap_registry.call_cap_safe(func1_name,args_dict)
-            cap_registry.record(msg.embed, func1_name)
+            cap = cap_registry.get_cap_by_name(func1_name)
+            func1_out = cap_registry.call_cap_safe(cap,args_dict)
+            cap_registry.record(msg, cap)
 
             msg.append(response)
             msg.append_cap_result(func1_out, tool_call.id)

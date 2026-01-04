@@ -50,12 +50,9 @@ class CapRegistry:
         return self.cap_store.search_by_similarity(msg, limit, min_similarity)
     
     @tracer.start_as_current_span("invoke_cap_safe")
-    def call_cap_safe(self, cap_name: str, args_dict=None):
+    def call_cap_safe(self, cap: Capability, args_dict=None):
         ## todo replace by https://github.com/langchain-ai/langchain-sandbox?
         """动态创建函数并执行"""
-        # 定义函数
-        cap = self.get_cap_by_name(cap_name)
-        logging.info(f"Cap: {cap}")
         func_code = cap.function_impl
         #func_def = f"""
         #def dynamic_func({', '.join(args_dict.keys())}):
@@ -81,5 +78,5 @@ class CapRegistry:
         return func(**args_dict)
 
     @tracer.start_as_current_span("record_cap_history_safe")
-    def record(self, msg: Msg, cap_name:str):
-        return self.cap_store.record(msg, cap_name)
+    def record(self, msg: Msg, cap: Capability):
+        return self.cap_store.record(msg, cap)

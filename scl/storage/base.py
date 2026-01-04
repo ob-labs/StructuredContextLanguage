@@ -34,7 +34,7 @@ class StoreBase(ABC):
         pass
 
     @abstractmethod
-    def record(self, msg:Msg, cap_name:str):
+    def record(self, msg:Msg, cap:Capability):
         """
         Record a query embedding and its associated capability name.
         
