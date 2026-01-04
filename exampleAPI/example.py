@@ -65,25 +65,13 @@ def test():
     msg = Msg(messages)
     print(function_call_playground(client, model, cap_registry,["compare"], msg))
 
-    ## cap_registry.learn_by_count()
-    # | Case number | File format | Context RAG | Memory | Function call | 
-    # | 0 | n/A | n/A | n/A | n/A |
-    #messages = [{'role': 'user', 'content': "用中文回答：单词strawberry中有多少个字母r?"}]
-    #print(function_call_playground(client, model, cap_registry,[], messages))
-    ## case ? test with function call with hit
-    # | ? | n/A | n/A | n/A | Autonomy |
-    #messages = [{'role': 'user', 'content': "用中文回答：9.11和9.9，哪个小?"}]
-    #print(function_call_playground(client, model, cap_registry,[], messages))
-
-    ## cap_registry.learn_by_rag()
-    # | Case number | File format | Context RAG | Memory | Function call | 
-    # | 0 | n/A | n/A | n/A | n/A |
-    #messages = [{'role': 'user', 'content': "用中文回答：单词strawberry中有多少个字母r?"}]
-    #print(function_call_playground(client, model, cap_registry,[], messages))
-    ## case ? test with function call with hit
-    # | ? | n/A | n/A | n/A | Autonomy |
-    #messages = [{'role': 'user', 'content': "用中文回答：9.11和9.9，哪个小?"}]
-    #print(function_call_playground(client, model, cap_registry,[], messages))
+    ### Function call Autonomy as learn from history(memory)
+    messages = [{'role': 'user', 'content': "用中文回答：单词strawberry中有多少个字母r?"}]
+    msg = Msg(messages)
+    print(function_call_playground(client, model, cap_registry,[], msg))
+    messages = [{'role': 'user', 'content': "用中文回答：9.11和9.9，哪个小?"}]
+    msg = Msg(messages)
+    print(function_call_playground(client, model, cap_registry,[], msg))
 
 if __name__ == "__main__":
     test()

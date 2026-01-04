@@ -15,7 +15,11 @@ def send_messages(
         tools_named = cap_registry.getCapsByNames(ToolNames)
         tools_autonomy = cap_registry.getCapsBySimilarity(msg)
         tools_history = cap_registry.getCapsByHistory(msg)
-        tools_merged = {**tools_named, **tools_autonomy, **tools_history}
+        tools_merged = {    
+            **({} if tools_named is None else tools_named),
+            **({} if tools_autonomy is None else tools_autonomy),
+            **({} if tools_history is None else tools_history)
+        }
         ## where is learn from history? 自适应
             ## 基于规则learn
                 ## 指标学习

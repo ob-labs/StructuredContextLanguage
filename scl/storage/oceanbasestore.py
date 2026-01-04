@@ -2,7 +2,7 @@ import sys
 import os
 import json
 import logging
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 # Add the StructuredContextLanguage directory to the path
 scl_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -12,7 +12,6 @@ from scl.trace import tracer
 from scl.storage.base import StoreBase
 from scl.meta.capability import Capability
 from scl.meta.msg import Msg
-from typing import List
 
 try:
     from pyobvector import (
@@ -286,7 +285,7 @@ class OceanBaseStore(StoreBase):
             return None
     
     @tracer.start_as_current_span("search_by_similarity")
-    def search_by_similarity(self, msg: Msg, limit=5, min_similarity=0.5) -> List[Capability]:
+    def search_by_similarity(self, msg: Msg, limit=5, min_similarity=0.5) -> Dict[str,Capability]:
         """Query capabilities by description similarity"""
         try:
             # Get embedding from Msg object
@@ -315,7 +314,7 @@ class OceanBaseStore(StoreBase):
                 ],
             )
             
-            similar_functions = []
+            similar_functions = {}
             for row in results.fetchall():
                 # Parse result row
                 # Row format depends on the number and order of returned columns
@@ -352,7 +351,7 @@ class OceanBaseStore(StoreBase):
                 except (json.JSONDecodeError, TypeError):
                     llm_desc = llm_desc if llm_desc else {}
                 
-                similar_functions.append(Capability(name=name_val, type=type_val, llm_description=llm_desc))
+                similar_functions[name_val] = Capability(name=name_val, type=type_val, llm_description=llm_desc)
                 
                 # If we've found enough results meeting the threshold, return early
                 if len(similar_functions) >= limit:
@@ -363,7 +362,7 @@ class OceanBaseStore(StoreBase):
             
         except Exception as e:
             logging.error(f"Similarity search failed: {e}", exc_info=True)
-            return []
+            return {}
     
     @tracer.start_as_current_span("record_cap_history_safe")
     def record(self, msg: Msg, cap: Capability):
@@ -380,3 +379,17 @@ class OceanBaseStore(StoreBase):
         # OceanBase storage doesn't need to record history
         # This method is provided for interface compatibility
         return
+
+    def getCapsByHistory(self, msg:Msg, limit=5, min_similarity=0.5) -> Dict[str,Capability]:
+        """
+        Search for similar items based on embedding similarity.
+        
+        Args:
+            msg (Msg): The message object containing the embedding vector to search with
+            limit (int): Maximum number of results to return (default 5)
+            min_similarity (float): Minimum similarity threshold (default 0.5)
+            
+        Returns:
+            List of similar items with their similarity scores
+        """
+        pass
