@@ -11,9 +11,9 @@ class Capability(ABC):
     
     def __init__(self,
                  name: str,
-                 description: str,
-                 original_body: str,
                  type: str,
+                 description: Optional[str] = None,
+                 original_body: Optional[str] = None,
                  llm_description: Optional[str] = None,
                  function_impl: Optional[str] = None):
         self._name = name
@@ -62,7 +62,7 @@ class Capability(ABC):
         return self._function_impl
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(name='{self.name}', description='{self.description[:50]}...')"
+        return f"{self.__class__.__name__}(name='{self.name}'...')"
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Capability):

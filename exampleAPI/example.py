@@ -11,6 +11,7 @@ logging.basicConfig(
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from scl.cap_reg import CapRegistry
+from scl.meta.msg import Msg
 from scl.storage.pgstore import PgVectorStore
 from scl.llm_chat import function_call_playground
 # Import utils functions - adding current directory to path for relative imports
@@ -46,19 +47,23 @@ def test():
     # | Case number | File format | Context RAG | Memory | Function call | 
     # | 0 | n/A | n/A | n/A | n/A |
     messages = [{'role': 'user', 'content': "用中文回答：单词strawberry中有多少个字母r?"}]
-    print(function_call_playground(client, model, cap_registry,[], messages))
+    msg = Msg(messages)
+    print(function_call_playground(client, model, cap_registry,[], msg))
     ## case ? test with function call with hit
     # | ? | n/A | n/A | n/A | Autonomy |
     messages = [{'role': 'user', 'content': "用中文回答：9.11和9.9，哪个小?"}]
-    print(function_call_playground(client, model, cap_registry,[], messages))
+    msg = Msg(messages)
+    print(function_call_playground(client, model, cap_registry,[], msg))
 
     ### Function call Autonomy by RAG + User specific
     ## case 6 test with function call with hit
     # | 6 | n/A | by config | n/A | by config |
     messages = [{'role': 'user', 'content': "用中文回答：单词strawberry中有多少个字母r?"}]
-    print(function_call_playground(client, model, cap_registry,["count_letter"], messages))
+    msg = Msg(messages)
+    print(function_call_playground(client, model, cap_registry,["count_letter"], msg))
     messages = [{'role': 'user', 'content': "用中文回答：9.11和9.9，哪个小?"}]
-    print(function_call_playground(client, model, cap_registry,["compare"], messages))
+    msg = Msg(messages)
+    print(function_call_playground(client, model, cap_registry,["compare"], msg))
 
     ## cap_registry.learn_by_count()
     # | Case number | File format | Context RAG | Memory | Function call | 

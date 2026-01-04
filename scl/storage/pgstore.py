@@ -257,6 +257,7 @@ class PgVectorStore(StoreBase):
             results = cursor.fetchall()
             
             cursor.close()
+            logging.info("finish query db")
             
             if results:
                 similar_functions = []
@@ -268,7 +269,6 @@ class PgVectorStore(StoreBase):
                     if float(row[3]) < min_similarity:
                         logging.info(f"{row[0]} 相似度 {row[3]} 低于阈值 {min_similarity}")
                         continue
-                    # 解析llm_description JSON
                     similar_functions.append(Capability(name=row[0], type=row[1], llm_description=llm_desc))
                     #similar_functions.append({"name":row[0],"type":row[1],"desc":llm_desc})
                 

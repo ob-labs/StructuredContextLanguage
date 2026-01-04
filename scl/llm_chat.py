@@ -13,7 +13,7 @@ def send_messages(
         Turns):
     if Turns == 0: 
         tools_named = cap_registry.getCapsByNames(ToolNames)
-        tools_autonomy = cap_registry.getCapsBySimilarity(msg.embed)
+        tools_autonomy = cap_registry.getCapsBySimilarity(msg)
         ## where is learn from history? 自适应
             ## 基于规则learn
                 ## 指标学习
@@ -53,10 +53,9 @@ def function_call_playground(
     client, model, 
     cap_registry:CapRegistry,
     ToolNames,
-    messages
+    msg:Msg,
     ): 
     turns = 0
-    msg = Msg(messages)
     response = send_messages(client, model, cap_registry, ToolNames, msg, turns)
     # todo, feedback loop model(langchain)
     turns += 1
