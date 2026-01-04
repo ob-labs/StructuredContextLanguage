@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from scl.meta.msg import Msg
 from scl.meta.capability import Capability
-from typing import List
+from typing import Dict
 
 class StoreBase(ABC):
     
@@ -19,7 +19,7 @@ class StoreBase(ABC):
         pass
     
     @abstractmethod
-    def search_by_similarity(self, msg:Msg, limit=5, min_similarity=0.5) -> List[Capability]:
+    def search_by_similarity(self, msg:Msg, limit=5, min_similarity=0.5) -> Dict[str,Capability]:
         """
         Search for similar items based on embedding similarity.
         
@@ -44,5 +44,20 @@ class StoreBase(ABC):
             
         Returns:
             None
+        """
+        pass
+
+    @abstractmethod
+    def getCapsByHistory(self, msg:Msg, limit=5, min_similarity=0.5) -> Dict[str,Capability]:
+        """
+        Search for similar items based on embedding similarity.
+        
+        Args:
+            msg (Msg): The message object containing the embedding vector to search with
+            limit (int): Maximum number of results to return (default 5)
+            min_similarity (float): Minimum similarity threshold (default 0.5)
+            
+        Returns:
+            List of similar items with their similarity scores
         """
         pass
