@@ -11,14 +11,14 @@ class Capability(ABC):
     
     def __init__(self,
                  name: str,
-                 description: str,
-                 original_body: str,
                  type: str,
+                 description: Optional[str] = None,
+                 original_body: Optional[str] = None,
                  llm_description: Optional[str] = None,
                  function_impl: Optional[str] = None):
         self._name = name
         self._description = description
-        self._embedding_description = embed(self._description)
+        self._embedding_description = None
         self._original_body = original_body
         self._type = type
         self._llm_description = llm_description
@@ -42,6 +42,8 @@ class Capability(ABC):
     @property
     def embedding_description(self):
         """函数描述 实际用于RAG渐进式加载"""
+        if self._embedding_description is None:
+            self._embedding_description = embed(self._description)
         return self._embedding_description
 
     @property
@@ -60,7 +62,7 @@ class Capability(ABC):
         return self._function_impl
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(name='{self.name}', description='{self.description[:50]}...')"
+        return f"{self.__class__.__name__}(name='{self.name}'...')"
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Capability):

@@ -17,7 +17,7 @@ logging.basicConfig(
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from scl.cap_reg import CapRegistry
-from scl.embeddings.impl import OpenAIEmbedding
+from scl.meta.msg import Msg
 from scl.storage.fsstore import fsstore
 from scl.llm_chat import function_call_playground
 
@@ -39,11 +39,13 @@ def test():
     # | Case number | File format | Context RAG | Memory | Function call | 
     # | 0 | n/A | n/A | n/A | n/A |
     messages = [{'role': 'user', 'content': "Creating algorithmic art using p5.js with seeded randomness and interactive parameter exploration."}]
-    print(function_call_playground(client, model, cap_registry, [], messages))
+    msg = Msg(messages)
+    print(function_call_playground(client, model, cap_registry, [], msg))
     ## case ? test with function call with hit
     # | ? | n/A | n/A | n/A | Autonomy |
     messages = [{'role': 'user', 'content': "用中文回答：9.11和9.9，哪个小?"}]
-    print(function_call_playground(client, model, cap_registry, [], messages))
-
+    msg = Msg(messages)
+    print(function_call_playground(client, model, cap_registry, [], msg))
+    
 if __name__ == "__main__":
     test()
