@@ -1,7 +1,7 @@
 import sys
 import os
 import logging
-from typing import List
+from typing import List, Dict
 from scl.meta.capability import Capability
 
 # Add the StructuredContextLanguage directory to the path
@@ -25,17 +25,17 @@ class CapRegistry:
     ## Return function in openAI tool format
     ## the only diff between this class and basestore are getCapsByNames and call_cap_safe?
     @tracer.start_as_current_span("getCapsByNames")
-    def getCapsByNames(self, ToolNames: List[str]) -> List[Capability]:
-        functions = []
+    def getCapsByNames(self, ToolNames: List[str]) -> Dict[str,Capability]:
+        functions = {}
         if self.cap_store is None:
             logging.info("Database not initialized. Cannot perform similarity search.")
-            return []
+            return {}
         for tool_name in ToolNames:
             logging.info(f"Searching for function: {tool_name}")
             function = self.get_cap_by_name(tool_name)
             logging.info(f"Function: {function}")
             if function:
-                functions.append(function)
+                functions[tool_name]=function
         return functions
     
     ## make this class fits basestore interface
@@ -46,7 +46,7 @@ class CapRegistry:
     ## RAG search between context and function description after embedding
     ## Return function in openAI tool format
     @tracer.start_as_current_span("getCapsBySimilarity")
-    def getCapsBySimilarity(self, msg: Msg, limit=5, min_similarity=0.5) -> List[Capability]:
+    def getCapsBySimilarity(self, msg: Msg, limit=5, min_similarity=0.5) -> Dict[str, Capability]:
         return self.cap_store.search_by_similarity(msg, limit, min_similarity)
     
     @tracer.start_as_current_span("invoke_cap_safe")
@@ -80,3 +80,7 @@ class CapRegistry:
     @tracer.start_as_current_span("record_cap_history_safe")
     def record(self, msg: Msg, cap: Capability):
         return self.cap_store.record(msg, cap)
+
+    @tracer.start_as_current_span("getCapsByHistory")
+    def getCapsByHistory(self, msg: Msg) -> Dict[str, Capability]:
+        return self.cap_store.getCapsByHistory(msg)

@@ -8,7 +8,7 @@ from scl.meta.skill import Skill
 import numpy as np
 from scl.trace import tracer
 from scl.meta.msg import Msg
-from typing import List
+from typing import Dict
 
 class fsstore(StoreBase):
     def __init__(self, path, init):
@@ -95,22 +95,30 @@ class fsstore(StoreBase):
         return None
 
     @tracer.start_as_current_span("search_by_similarity")
-    def search_by_similarity(self, msg: Msg, limit=5, min_similarity=0.5) -> List[Capability]:
-        result = []
+    def search_by_similarity(self, msg: Msg, limit=5, min_similarity=0.5) -> Dict[str, Capability]:
+        result = {}
         for path, data in self._skill_embedding_cache.items():
             skill_embedding = data["Capability"].embedding_description
             query_embedding = msg.embed
             similarity = self.cosine_similarity(query_embedding, skill_embedding)
             if similarity >= min_similarity:
                 cur = data["Capability"]
-                result.append(Capability(name=cur.name, type=cur.type, description=cur.description))# , path=path)
+                result[cur.name]=Capability(name=cur.name, type=cur.type, description=cur.description)# , path=path)
                     #{"name":cur.name,"type":cur.type, "desc": cur.description, "path": path})
             if len(result) >= limit:
                 break
         return result
 
-    @tracer.start_as_current_span("record_cap_history_safe")
-    def record(self, msg: Msg, cap_name:str):
+    @tracer.start_as_current_span("record_cap_history")
+    def record(self, msg: Msg, cap:Capability):
+        ## having history in FS may too huge, skip for now.
+        ## otherwise have a in memory db with size limited maybe an option.
+        return
+
+    @tracer.start_as_current_span("getCapsByHistory")
+    def getCapsByHistory(self, msg:Msg, limit=5, min_similarity=0.5) -> Dict[str, Capability]:
+        ## having history in FS may too huge, skip for now.
+        ## otherwise have a in memory db with size limited maybe an option.
         return
     
     def cosine_similarity(self, vec1, vec2):
