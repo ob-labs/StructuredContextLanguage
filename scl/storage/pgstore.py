@@ -7,7 +7,7 @@ import logging
 scl_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(scl_root)
 from scl.meta.msg import Msg
-from typing import List
+from typing import Dict
 from scl.trace import tracer
 from scl.storage.base import StoreBase
 from scl.meta.capability import Capability
@@ -43,6 +43,7 @@ class PgVectorStore(StoreBase):
             self.create_database()
             self.enable_vector_extension()
             self.create_table()
+            self.create_history_table()
             
     def connect(self):
         """连接到数据库"""
@@ -115,6 +116,30 @@ class PgVectorStore(StoreBase):
             logging.info(f"启用扩展失败: {e}")
             self.conn.rollback()
     
+    def create_history_table(self):
+        """创建历史记录表"""
+        try:
+            cursor = self.conn.cursor()
+            embedding_dims = os.getenv("EMBEDDING_MODEL_DIMS", 1024)
+            ## tbd UNIQUE(capability_id, embedding)?
+            create_table_sql = f"""
+            CREATE TABLE IF NOT EXISTS capabilities_invoked_history (
+                id SERIAL PRIMARY KEY,
+                capability_id INT REFERENCES capabilities(id),
+                embedding vector({embedding_dims})
+            );
+            
+            CREATE INDEX IF NOT EXISTS idx_capabilities_invoked_history_embedding 
+            ON capabilities_invoked_history USING ivfflat (embedding vector_l2_ops);
+            """
+            cursor.execute(create_table_sql)
+            self.conn.commit()
+            cursor.close()
+            logging.info("表格创建成功")
+        except Exception as e:
+            logging.info(f"创建表格失败: {e}")
+            self.conn.rollback()
+
     def create_table(self):
         """创建函数存储表"""
         try:
@@ -236,7 +261,7 @@ class PgVectorStore(StoreBase):
             return None
     
     @tracer.start_as_current_span("search_by_similarity")
-    def search_by_similarity(self, msg:Msg, limit=5, min_similarity=0.5)-> List[Capability]:
+    def search_by_similarity(self, msg:Msg, limit=5, min_similarity=0.5)-> Dict[str, Capability]:
         """根据描述相似度查询函数"""
         try:
             # 为查询文本生成嵌入向量)
@@ -260,7 +285,7 @@ class PgVectorStore(StoreBase):
             logging.info("finish query db")
             
             if results:
-                similar_functions = []
+                similar_functions = {}
                 for row in results:
                     try:
                         llm_desc = json.loads(row[2]) if row[2] else {}
@@ -269,19 +294,73 @@ class PgVectorStore(StoreBase):
                     if float(row[3]) < min_similarity:
                         logging.info(f"{row[0]} 相似度 {row[3]} 低于阈值 {min_similarity}")
                         continue
-                    similar_functions.append(Capability(name=row[0], type=row[1], llm_description=llm_desc))
+                    similar_functions[row[0]] = Capability(name=row[0], type=row[1], llm_description=llm_desc)
                     #similar_functions.append({"name":row[0],"type":row[1],"desc":llm_desc})
                 
                 logging.info(f"找到 {len(similar_functions)} 个相似函数")
                 return similar_functions
             else:
                 logging.info("未找到相似函数")
-                return []
+                return {}
             
         except Exception as e:
             logging.info(f"相似性搜索失败: {e}")
-            return []
+            return {}
 
-    @tracer.start_as_current_span("record_cap_history_safe")
-    def record(self, msg:Msg, cap_name:str):
+    @tracer.start_as_current_span("record_cap_history")
+    def record(self, msg:Msg, cap:Capability):
+        try:
+            cursor = self.conn.cursor()
+            insert_sql = """
+                INSERT INTO capabilities_invoked_history (capability_id, embedding)
+                    SELECT c.id, %s
+                    FROM capabilities c
+                    WHERE c.name = %s;
+            """
+            cursor.execute(insert_sql, (msg.embed, cap.name))
+            self.conn.commit()
+            cursor.close()
+            logging.info("record success")
+        except Exception as e:
+            logging.info(f"记录历史失败: {e}")
         return
+
+    @tracer.start_as_current_span("getCapsByHistory")
+    def getCapsByHistory(self, msg:Msg, limit=5, min_similarity=0.5) -> Dict[str, Capability]:
+        """根据历史记录查询函数"""
+        try:
+            cursor = self.conn.cursor()
+            query_embedding = msg.embed
+            search_sql = """
+            SELECT 
+                c.name,
+                c.type,
+                c.llm_description,
+                1 - (cih.embedding <=> %s::vector) as similarity
+            FROM capabilities c, capabilities_invoked_history cih
+            WHERE c.id = cih.capability_id
+            ORDER BY cih.embedding <=> %s::vector
+            LIMIT %s;
+            """
+            
+            cursor.execute(search_sql, (query_embedding, query_embedding, limit))
+            results = cursor.fetchall()
+            cursor.close()
+            if results:
+                history_caps = {}
+                for row in results:
+                    try:
+                        llm_desc = json.loads(row[2]) if row[2] else {}
+                    except:
+                        llm_desc = row[2]
+                    if float(row[3]) < min_similarity:
+                        logging.info(f"{row[0]} 相似度 {row[3]} 低于阈值 {min_similarity}")
+                        continue
+                    history_caps[row[0]] = Capability(name=row[0], type=row[1], llm_description=llm_desc)
+                    #similar_functions.append({"name":row[0],"type":row[1],"desc":llm_desc})
+                
+                logging.info(f"找到 {len(history_caps)} 个历史")
+                return history_caps
+        except Exception as e:
+            logging.info(f"根据历史记录查询函数失败: {e}")
+            return {}
