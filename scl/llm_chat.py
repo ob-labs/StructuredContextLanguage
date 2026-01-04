@@ -14,25 +14,18 @@ def send_messages(
     if Turns == 0: 
         tools_named = cap_registry.getCapsByNames(ToolNames)
         tools_autonomy = cap_registry.getCapsBySimilarity(msg)
+        tools_history = cap_registry.getCapsByHistory(msg)
+        tools_merged = {**tools_named, **tools_autonomy, **tools_history}
         ## where is learn from history? 自适应
             ## 基于规则learn
                 ## 指标学习
-        #tools_history_count = cap_registry.getCapsByShortHistory(messages[0]['content'], type="count")
-            ## RAG，KNN
         #tools_history_rag = cap_registry.getCapsByShortHistory(messages[0]['content'], type="rag")
             ## Learn？ workflow memeory -- learn_by_count, learn_by_rag
-                ## 大模型通过学习历史，为未来的执行写下hardcode
+                ## 大模型通过学习历史，为未来的执行写下hardcode?
         tools = []
-        ## todo 去重
-        for tool in tools_named:
+        for tool in list(tools_merged.values()):
             if tool.type != "skill":
                 tools.append(tool.llm_description)
-        for tool in tools_autonomy:
-            if tool.type != "skill":
-                tools.append(tool.llm_description)
-        #for tool in tools_history:
-        #    if tool['type'] != "skill":
-        #        tools.append(tool['desc'])
         logging.info(tools)
         logging.info(msg)
         # Build request parameters - only include tools if not empty
