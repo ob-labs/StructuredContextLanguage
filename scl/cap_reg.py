@@ -82,5 +82,5 @@ class CapRegistry:
         return self.cap_store.record(msg, cap)
 
     @tracer.start_as_current_span("getCapsByHistory")
-    def getCapsByHistory(self, msg: Msg) -> Dict[str, Capability]:
-        return self.cap_store.getCapsByHistory(msg)
+    def getCapsByHistory(self, msg: Msg, limit=5, min_similarity=0.5) -> Dict[str, Capability]:
+        return self.cap_store.getCapsByHistory(msg, limit, min_similarity)

@@ -8,24 +8,28 @@ from scl.meta.msg import Msg
 def send_messages(
         client, model, 
         cap_registry:CapRegistry, 
-        ToolNames, 
+        ToolNames, # todo here, support both name and give Cap
         msg:Msg, 
         Turns):
     if Turns == 0: 
         tools_named = cap_registry.getCapsByNames(ToolNames)
-        tools_autonomy = cap_registry.getCapsBySimilarity(msg)
-        tools_history = cap_registry.getCapsByHistory(msg)
+        ## limit can be auto adjust?
+        ### what's the evaludation metric?
+        ### default from env(x)
+        ### according to what?(y)
+        ### change limit from as x - y (如性能考虑，token数量)
+        ## min_similarity auto adjust?
+        ### what's the evaluation metric?
+        ### default min_similarity is x > an env based defualt value
+        ### according to y > from history table(用户确认的行为，这就是最好的学习资料)
+        ### change min_similarity as x - y?
+        tools_autonomy = cap_registry.getCapsBySimilarity(msg, limit=5, min_similarity=0.5)
+        tools_history = cap_registry.getCapsByHistory(msg, limit=5, min_similarity=0.5)
         tools_merged = {    
             **({} if tools_named is None else tools_named),
             **({} if tools_autonomy is None else tools_autonomy),
             **({} if tools_history is None else tools_history)
         }
-        ## where is learn from history? 自适应
-            ## 基于规则learn
-                ## 指标学习
-        #tools_history_rag = cap_registry.getCapsByShortHistory(messages[0]['content'], type="rag")
-            ## Learn？ workflow memeory -- learn_by_count, learn_by_rag
-                ## 大模型通过学习历史，为未来的执行写下hardcode?
         tools = []
         for tool in list(tools_merged.values()):
             if tool.type != "skill":
@@ -59,7 +63,7 @@ def function_call_playground(
     ): 
     turns = 0
     response = send_messages(client, model, cap_registry, ToolNames, msg, turns)
-    # todo, feedback loop model(langchain)
+    # todo, feedback loop model?(ref langchain)
     turns += 1
     logging.info(response)
     if response.tool_calls:
