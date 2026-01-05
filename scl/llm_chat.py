@@ -13,6 +13,7 @@ def send_messages(
         Turns):
     if Turns == 0: 
         tools_named = cap_registry.getCapsByNames(ToolNames)
+        ## why not I just prvide the metrics and leave the function to user themself?
         ## limit can be auto adjust?
         ### what's the evaludation metric?
         ### default from env(x)
