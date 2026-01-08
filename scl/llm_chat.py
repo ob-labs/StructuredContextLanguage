@@ -3,7 +3,17 @@ import logging
 from scl.trace import tracer
 from scl.cap_reg import CapRegistry
 from scl.meta.msg import Msg
+from scl.config import config
 
+## why not we just prvide the metrics and leave the function to user themself?
+## using hooks to provide user capbility to overwrite the default behavior
+## hence we just provides metrics as evdience to support user.
+## we can further provide an prompt to user to generate the hook as most LLM can generate the code.
+### to achive this
+#### otel metric
+#### using otel metric into hook
+#### cache system
+#### using cache value into hook
 @tracer.start_as_current_span("send_messages")
 def send_messages(
         client, model, 
@@ -12,29 +22,37 @@ def send_messages(
         msg:Msg, 
         Turns):
     if Turns == 0: 
+        ## to do an autonomy sider
+        ### hook of overwrite limit
+        limit = config.limit
+        ### hook of overwrite min_similarity
+        min_similarity = config.min_similarity
         tools_named = cap_registry.getCapsByNames(ToolNames)
-        ## why not I just prvide the metrics and leave the function to user themself?
-        ## limit can be auto adjust?
-        ### what's the evaludation metric?
-        ### default from env(x)
-        ### according to what?(y)
-        ### change limit from as x - y (如性能考虑，token数量)
-        ## min_similarity auto adjust?
-        ### what's the evaluation metric?
-        ### default min_similarity is x > an env based defualt value
-        ### according to y > from history table(用户确认的行为，这就是最好的学习资料)
-        ### change min_similarity as x - y?
-        tools_autonomy = cap_registry.getCapsBySimilarity(msg, limit=5, min_similarity=0.5)
-        tools_history = cap_registry.getCapsByHistory(msg, limit=5, min_similarity=0.5)
+        ## metrics 
+        ### search time,search number
+        ### a key-value cache for information
+        tools_autonomy = cap_registry.getCapsBySimilarity(msg, limit, min_similarity)
+        ## metrics 
+        ### search time,search number
+        ### a key-value cache for information
+        tools_history = cap_registry.getCapsByHistory(msg, limit, min_similarity)
+        ## metrics 
+        ### search time,search number
+        ### a key-value cache for information
+
+        ### to do an autonomy sider hook?
         tools_merged = {    
             **({} if tools_named is None else tools_named),
             **({} if tools_autonomy is None else tools_autonomy),
             **({} if tools_history is None else tools_history)
         }
+        ## metrics tool number,metrics as duplicate number? 
+        ## or a cache for duplicate info
         tools = []
         for tool in list(tools_merged.values()):
             if tool.type != "skill":
                 tools.append(tool.llm_description)
+        ## todo-> debug/trace
         logging.info(tools)
         logging.info(msg)
         # Build request parameters - only include tools if not empty
@@ -63,21 +81,27 @@ def function_call_playground(
     msg:Msg,
     ): 
     turns = 0
+    ## metric execution time
     response = send_messages(client, model, cap_registry, ToolNames, msg, turns)
     # todo, feedback loop model?(ref langchain)
     turns += 1
+    ## todo-> debug/trace
     logging.info(response)
     if response.tool_calls:
         for tool_call in response.tool_calls:
+            ## metric accuery for each search? from LLM, back to cap_reg's cache
             func1_name = tool_call.function.name
             func1_args = tool_call.function.arguments
+            ## todo-> debug/trace
             logging.info(f"func1_name: {func1_name}, func1_args: {func1_args}")
             args_dict = json.loads(func1_args)
             cap = cap_registry.get_cap_by_name(func1_name)
             func1_out = cap_registry.call_cap_safe(cap,args_dict)
+            ## metric execution time
             cap_registry.record(msg, cap)
 
             msg.append(response)
             msg.append_cap_result(func1_out, tool_call.id)
+        ## metric execution time
         response = send_messages(client, model, cap_registry, ToolNames, msg, turns)
     return response.content
