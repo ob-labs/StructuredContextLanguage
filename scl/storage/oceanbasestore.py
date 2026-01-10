@@ -12,6 +12,7 @@ from scl.trace import tracer
 from scl.storage.base import StoreBase
 from scl.meta.capability import Capability
 from scl.meta.msg import Msg
+from scl.config import config
 
 try:
     from pyobvector import (
@@ -61,7 +62,7 @@ class OceanBaseStore(StoreBase):
             "db_name": db_name,
         }
         self.table_name = table_name
-        self.embedding_model_dims = embedding_model_dims or int(os.getenv("EMBEDDING_MODEL_DIMS", 1024))
+        self.embedding_model_dims = embedding_model_dims or int(config.embedding_model_dims)
         
         # Initialize client
         self._create_client()

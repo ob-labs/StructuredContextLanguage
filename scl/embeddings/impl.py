@@ -4,6 +4,7 @@ import logging
 from openai import OpenAI
 from scl.trace import tracer
 from functools import lru_cache
+from scl.config import config
 
 class OpenAIEmbedding:
     _instance = None
@@ -18,11 +19,11 @@ class OpenAIEmbedding:
         if self._initialized:
             return
             
-        self.model = os.getenv("EMBEDDING_MODEL", "BAAI/bge-large-zh-v1.5")
-        self.embedding_dims = os.getenv("EMBEDDING_MODEL_DIMS", 1024)
+        self.model = config.embedding_model
+        self.embedding_dims = config.embedding_model_dims
 
-        api_key = os.getenv("EMBEDDING_API_KEY")
-        base_url = os.getenv("EMBEDDING_BASE_URL", "https://api.siliconflow.cn/v1")
+        api_key = config.embedding_api_key
+        base_url = config.embedding_base_url
 
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         # Check if API supports dimensions parameter (OpenAI supports it, SiliconFlow doesn't)

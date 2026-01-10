@@ -9,6 +9,7 @@ sys.path.append(scl_root)
 from scl.meta.msg import Msg
 from typing import Dict
 from scl.trace import tracer
+from scl.config import config
 from scl.storage.base import StoreBase
 from scl.meta.capability import Capability
 Vector = None
@@ -146,7 +147,7 @@ class PgVectorStore(StoreBase):
             cursor = self.conn.cursor()
             
             # 获取嵌入模型的维度
-            embedding_dims = os.getenv("EMBEDDING_MODEL_DIMS", 1024)
+            embedding_dims = config.embedding_model_dims
             create_table_sql = f"""
             CREATE TABLE IF NOT EXISTS capabilities (
                 id SERIAL PRIMARY KEY,

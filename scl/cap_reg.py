@@ -14,7 +14,7 @@ from scl.meta.msg import Msg
 class CapRegistry:
     def __init__(self, StoreBase: StoreBase):
         """
-        Initialize the FunctionRegistry with any StoreBase implementation
+        Initialize the CapRegistry with any StoreBase implementation
         
         Args:
             StoreBase: An instance of any StoreBase implementation
@@ -52,28 +52,17 @@ class CapRegistry:
     @tracer.start_as_current_span("invoke_cap_safe")
     def call_cap_safe(self, cap: Capability, args_dict=None):
         ## todo replace by https://github.com/langchain-ai/langchain-sandbox?
+        ## todo replace by e2b?
         """动态创建函数并执行"""
         func_code = cap.function_impl
-        #func_def = f"""
-        #def dynamic_func({', '.join(args_dict.keys())}):
-        #    {func_code}
-        #"""
-        # 执行函数定义
-        #local_vars = {}
-        #logging.info(f"args_dict: {args_dict}")
-        #logging.info(f"func_def: {func_def}")
-        #exec(func_def, globals(), local_vars)
-        # 或者使用更简单的版本：
         func_lines = [f"def dynamic_func({', '.join(args_dict.keys())}):"]
         func_lines.extend([f"    {line}" for line in func_code.split('\n')])
         func_def = '\n'.join(func_lines)
-
-        # 执行函数定义
         local_vars = {}
+        ## todo debug/trace
         logging.info(f"args_dict: {args_dict}")
         logging.info(f"func_def: {func_def}")
-        exec(func_def, globals(), local_vars)   
-        # 获取函数并执行
+        exec(func_def, globals(), local_vars)
         func = local_vars['dynamic_func']
         return func(**args_dict)
 
@@ -82,5 +71,5 @@ class CapRegistry:
         return self.cap_store.record(msg, cap)
 
     @tracer.start_as_current_span("getCapsByHistory")
-    def getCapsByHistory(self, msg: Msg) -> Dict[str, Capability]:
-        return self.cap_store.getCapsByHistory(msg)
+    def getCapsByHistory(self, msg: Msg, limit=5, min_similarity=0.5) -> Dict[str, Capability]:
+        return self.cap_store.getCapsByHistory(msg, limit, min_similarity)

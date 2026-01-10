@@ -7,6 +7,7 @@ from opentelemetry.sdk.trace.export import (
     BatchSpanProcessor,
     ConsoleSpanExporter,
 )
+from scl.config import config
 
 # Try to import OTLP exporter, fallback to console if not available
 try:
@@ -21,7 +22,7 @@ provider = TracerProvider()
 
 # Use OTLP exporter if available, otherwise use console exporter
 if OTLP_AVAILABLE:
-    OTLP_ENDPOINT = os.getenv("OTLP_ENDPOINT", "http://localhost:4318")  # 注意：默认端口通常是4318而不是4317
+    OTLP_ENDPOINT = config.otlp_endpoint
     span_exporter = OTLPSpanExporter(
         endpoint=f"{OTLP_ENDPOINT}/v1/traces"
     )
