@@ -3,6 +3,8 @@ import os
 import logging
 from typing import List, Dict
 from scl.meta.capability import Capability
+from scl.otel.metric_decorator import record_latency
+from scl.otel.otel import search_time_histogram, tool_execute_time_histogram, cap_search_result_count
 
 # Add the StructuredContextLanguage directory to the path
 scl_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -46,10 +48,12 @@ class CapRegistry:
     ## RAG search between context and function description after embedding
     ## Return function in openAI tool format
     @tracer.start_as_current_span("getCapsBySimilarity")
+    @record_latency(search_time_histogram, cap_search_result_count)
     def getCapsBySimilarity(self, msg: Msg, limit=5, min_similarity=0.5) -> Dict[str, Capability]:
         return self.cap_store.search_by_similarity(msg, limit, min_similarity)
     
     @tracer.start_as_current_span("invoke_cap_safe")
+    @record_latency(tool_execute_time_histogram)
     def call_cap_safe(self, cap: Capability, args_dict=None):
         ## todo replace by https://github.com/langchain-ai/langchain-sandbox?
         ## todo replace by e2b?
@@ -71,5 +75,6 @@ class CapRegistry:
         return self.cap_store.record(msg, cap)
 
     @tracer.start_as_current_span("getCapsByHistory")
+    @record_latency(search_time_histogram, cap_search_result_count)
     def getCapsByHistory(self, msg: Msg, limit=5, min_similarity=0.5) -> Dict[str, Capability]:
         return self.cap_store.getCapsByHistory(msg, limit, min_similarity)
