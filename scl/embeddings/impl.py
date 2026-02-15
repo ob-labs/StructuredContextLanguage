@@ -2,7 +2,7 @@ import os
 import time
 import logging
 from openai import OpenAI
-from scl.trace import tracer
+from scl.otel.otel import tracer
 from functools import lru_cache
 from scl.config import config
 

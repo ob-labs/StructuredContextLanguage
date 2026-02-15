@@ -8,7 +8,7 @@ scl_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 sys.path.append(scl_root)
 from scl.meta.msg import Msg
 from typing import Dict
-from scl.trace import tracer
+from scl.otel.otel import tracer
 from scl.config import config
 from scl.storage.base import StoreBase
 from scl.meta.capability import Capability
