@@ -48,7 +48,11 @@ def send_messages(
             **({} if tools_history is None else tools_history)
         }
         cap_counts["total"] = len(tools_merged)
-        cap_counts["duplicate"] = len(tools_named) + len(tools_autonomy) + len(tools_history) - cap_counts["total"]
+        # Add robustness: handle None values when calculating duplicates
+        named_count = len(tools_named) if tools_named is not None else 0
+        autonomy_count = len(tools_autonomy) if tools_autonomy is not None else 0
+        history_count = len(tools_history) if tools_history is not None else 0
+        cap_counts["duplicate"] = named_count + autonomy_count + history_count - cap_counts["total"]
         ## metrics tool number,metrics as duplicate number? 
         ## or a cache for duplicate info
         tools = []
