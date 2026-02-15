@@ -6,7 +6,7 @@ from scl.meta.skills_ref.parser import read_properties
 from scl.storage.base import StoreBase
 from scl.meta.skill import Skill
 import numpy as np
-from scl.trace import tracer
+from scl.otel.otel import tracer
 from scl.meta.msg import Msg
 from typing import Dict
 

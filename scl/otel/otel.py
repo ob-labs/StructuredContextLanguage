@@ -11,10 +11,9 @@ from opentelemetry.sdk.trace.export import (
 
 from opentelemetry import metrics
 from opentelemetry.sdk.metrics import (
-    MeterProvider, 
-    CallbackOptions, 
-    Observation
+    MeterProvider,
 )
+from opentelemetry.metrics import CallbackOptions, Observation
 from opentelemetry.sdk.metrics.export import (
     ConsoleMetricExporter,
     PeriodicExportingMetricReader,
@@ -76,34 +75,34 @@ meter = metrics.get_meter("scl")
 
 # Define metrics
 search_time_histogram = meter.create_histogram(
-    name="cap.search.time",
+    name="cap_search_time",
     description="Time taken for search operations",
     explicit_bucket_boundaries_advisory=[1.0, 5.0, 10.0],
     unit="s"
 )
 
 tool_execute_time_histogram = meter.create_histogram(
-    name="cap.execute.time",
+    name="cap_execute_time",
     description="Time taken for cap execution",
     explicit_bucket_boundaries_advisory=[1.0, 5.0, 10.0],
     unit="s"
 )
 
-## todo make it a map for search
-cap_search_result_count=0
-cap_total_count=0
-cap_duplicate_count=0
-cap_use_hit_count=0
+# Dictionary to store counts
+cap_counts = {
+    "search": 0,
+    "total": 0,
+    "duplicate": 0,
+    "hit": 0,
+}
 
 def observable_cap_gauge_func(options: CallbackOptions) -> Iterable[Observation]:
-    ## for loop map in ... value as int
-    yield Observation(cap_search_result_count, {"type": "cap search count"})
-    #yield Observation(cap_total_count, {"type": "cap total count"})
-    #yield Observation(cap_duplicate_count, {"type": "cap duplicate count"})
-    #yield Observation(cap_use_hit_count, {"type": "cap use hit count"})
+    # Loop through the dictionary and yield observations
+    for key, value in cap_counts.items():
+        yield Observation(value, {"type": " cap " + key + " count "})
 
 cap_gauge = meter.create_observable_gauge(
-    name="cap.gauge",
+    name="cap_gauge",
     callbacks=[observable_cap_gauge_func],
     description="gauge related with cap",
     unit="1"

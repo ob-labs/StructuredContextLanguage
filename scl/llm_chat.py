@@ -1,10 +1,10 @@
 import json
 import logging
-from scl.trace import tracer
+from scl.otel.otel import tracer
 from scl.cap_reg import CapRegistry
 from scl.meta.msg import Msg
 from scl.config import config
-from scl.otel.otel import cap_use_hit_count, cap_duplicate_count, cap_total_count
+from scl.otel.otel import cap_counts
 
 ## why not we just prvide the metrics and leave the function to user themself?
 ## using hooks to provide user capbility to overwrite the default behavior
@@ -47,8 +47,8 @@ def send_messages(
             **({} if tools_autonomy is None else tools_autonomy),
             **({} if tools_history is None else tools_history)
         }
-        cap_total_count = len(tools_merged)
-        cap_duplicate_count = len(tools_named) + len(tools_autonomy) + len(tools_history) - cap_total_count
+        cap_counts["total"] = len(tools_merged)
+        cap_counts["duplicate"] = len(tools_named) + len(tools_autonomy) + len(tools_history) - cap_counts["total"]
         ## metrics tool number,metrics as duplicate number? 
         ## or a cache for duplicate info
         tools = []
@@ -91,7 +91,7 @@ def function_call_playground(
     ## todo-> debug/trace
     logging.info(response)
     if response.tool_calls:
-        cap_use_hit_count = len(response.tool_calls)
+        cap_counts["hit"] = len(response.tool_calls)
         for tool_call in response.tool_calls:
             ## metric accuery for each search? from LLM, back to cap_reg's cache
             func1_name = tool_call.function.name
@@ -109,5 +109,5 @@ def function_call_playground(
         ## metric execution time
         response = send_messages(client, model, cap_registry, ToolNames, msg, turns)
     else:
-        cap_use_hit_count = 0
+        cap_counts["hit"] = 0
     return response.content
