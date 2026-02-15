@@ -15,8 +15,6 @@ from scl.meta.msg import Msg
 from scl.storage.pgstore import PgVectorStore
 from scl.llm_chat import function_call_playground
 # Import utils functions - adding current directory to path for relative imports
-import os
-import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from utils import *
 
@@ -49,27 +47,14 @@ def test():
     messages = [{'role': 'user', 'content': "用中文回答：单词strawberry中有多少个字母r?"}]
     msg = Msg(messages)
     print(function_call_playground(client, model, cap_registry,[], msg))
-    ## case ? test with function call with hit
-    # | ? | n/A | n/A | n/A | Autonomy |
-    messages = [{'role': 'user', 'content': "用中文回答：9.11和9.9，哪个小?"}]
-    msg = Msg(messages)
-    print(function_call_playground(client, model, cap_registry,[], msg))
-
     ### Function call Autonomy by RAG + User specific
     ## case 6 test with function call with hit
     # | 6 | n/A | by config | n/A | by config |
     messages = [{'role': 'user', 'content': "用中文回答：单词strawberry中有多少个字母r?"}]
     msg = Msg(messages)
     print(function_call_playground(client, model, cap_registry,["count_letter"], msg))
-    messages = [{'role': 'user', 'content': "用中文回答：9.11和9.9，哪个小?"}]
-    msg = Msg(messages)
-    print(function_call_playground(client, model, cap_registry,["compare"], msg))
-
     ### Function call Autonomy as learn from history(memory)
     messages = [{'role': 'user', 'content': "用中文回答：单词strawberry中有多少个字母r?"}]
-    msg = Msg(messages)
-    print(function_call_playground(client, model, cap_registry,[], msg))
-    messages = [{'role': 'user', 'content': "用中文回答：9.11和9.9，哪个小?"}]
     msg = Msg(messages)
     print(function_call_playground(client, model, cap_registry,[], msg))
 
