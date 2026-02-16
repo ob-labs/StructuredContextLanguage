@@ -15,6 +15,7 @@ from scl.cap_reg import CapRegistry
 from scl.meta.msg import Msg
 from scl.storage.pgstore import PgVectorStore
 from scl.llm_chat import function_call_playground
+from scl.learn import learn
 # Import utils functions - adding current directory to path for relative imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from utils import *
@@ -49,7 +50,7 @@ def test():
     # | ? | n/A | n/A | n/A | Autonomy |
     num1 = round(random.uniform(1, 20), 2)
     num2 = round(random.uniform(1, 20), 2)
-    messages = [{'role': 'user', 'content': f"用中文回答：{num1}和{num2}，哪个小?"}]
+    messages = [{'role': 'user', 'content': f"{num1}和{num2}比大小"}]
     msg = Msg(messages)
     print(function_call_playground(client, model, cap_registry,[], msg))
 
@@ -58,24 +59,37 @@ def test():
     # | 6 | n/A | by config | n/A | by config |
     num1 = round(random.uniform(1, 20), 2)
     num2 = round(random.uniform(1, 20), 2)
-    messages = [{'role': 'user', 'content': f"用中文回答：{num1}和{num2}，哪个小?"}]
+    messages = [{'role': 'user', 'content': f"比较{num1}和{num2}的大小？"}]
     msg = Msg(messages)
     print(function_call_playground(client, model, cap_registry,["compare"], msg))
 
     ### Function call Autonomy as learn from history(memory)
     num1 = round(random.uniform(1, 20), 2)
     num2 = round(random.uniform(1, 20), 2)
-    messages = [{'role': 'user', 'content': f"用中文回答：{num1}和{num2}，哪个小?"}]
+    messages = [{'role': 'user', 'content': f"{num1}和{num2}哪个小？"}]
     msg = Msg(messages)
     print(function_call_playground(client, model, cap_registry,[], msg))
 
-    ### scl.learn, behavior changes, as feedback loop effective
-    ### metric and goals are hardcode as input parameter.
-    ### num1 = round(random.uniform(1, 20), 2)
-    ### num2 = round(random.uniform(1, 20), 2)
-    ### messages = [{'role': 'user', 'content': f"用中文回答：{num1}和{num2}，哪个小?"}]
-    ### msg = Msg(messages)
-    ### print(function_call_playground(client, model, cap_registry,[], msg))
+    ### scl.learn, behavior change, as feedback loop effective
+    ### metric and goals are hardcode as a prompt as input parameter.
+    learn("learn from history")
+    num1 = round(random.uniform(1, 20), 2)
+    num2 = round(random.uniform(1, 20), 2)
+    messages = [{'role': 'user', 'content': f"{num1}和{num2}比大小"}]
+    msg = Msg(messages)
+    print(function_call_playground(client, model, cap_registry,[], msg))
+
+    num1 = round(random.uniform(1, 20), 2)
+    num2 = round(random.uniform(1, 20), 2)
+    messages = [{'role': 'user', 'content': f"比较{num1}和{num2}的大小？"}]
+    msg = Msg(messages)
+    print(function_call_playground(client, model, cap_registry,["compare"], msg))
+
+    num1 = round(random.uniform(1, 20), 2)
+    num2 = round(random.uniform(1, 20), 2)
+    messages = [{'role': 'user', 'content': f"{num1}和{num2}哪个小？"}]
+    msg = Msg(messages)
+    print(function_call_playground(client, model, cap_registry,[], msg))
 
 if __name__ == "__main__":
     test()

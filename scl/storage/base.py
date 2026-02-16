@@ -61,3 +61,16 @@ class StoreBase(ABC):
             List of similar items with their similarity scores
         """
         pass
+
+    @abstractmethod
+    def clean_history(self):
+        """
+        Clean the history of the store.
+        
+        Args:
+            None
+            
+        Returns:
+            None
+        """
+        pass
