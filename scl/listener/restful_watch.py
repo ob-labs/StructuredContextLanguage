@@ -7,7 +7,7 @@ from typing import Dict
 
 import uvicorn
 from fastapi import FastAPI, Request
-from scl.otel.otel import tracer
+from scl.otel.otel import tracer,meter
 from scl.meta.taskQueue import TaskQueue
 from opentelemetry import trace
 
@@ -28,6 +28,10 @@ class RestFulHandler:
         self.logger = logging.getLogger(self.__class__.__name__)
         # 创建 FastAPI 应用
         self.app = FastAPI(title="Todo Receiver")
+        self.restful_task_counter = meter.create_counter(
+            "restful_task_add",
+            description="Number of items added to the restful task queue"
+        )
         # 注册路由
         self.app.add_api_route("/todo", self._receive_todo, methods=["POST"])
 
@@ -44,6 +48,7 @@ class RestFulHandler:
         current_span.set_attribute("todo.rest.data", str(data))
         self.logger.info(f"Received todo via REST: {data}")
         self.todo_queue.add({"source": "rest", "data": data})
+        self.restful_task_counter.add(1)
         return {"status": "accepted"}
 
     def start(self):

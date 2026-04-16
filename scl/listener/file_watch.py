@@ -8,15 +8,19 @@ import shutil
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 from scl.meta.taskQueue import TaskQueue
-from scl.otel.otel import tracer
+from scl.otel.otel import tracer, meter
 
-class TodoFileHandler(FileSystemEventHandler):
+class FileHandler(FileSystemEventHandler):
     def __init__(self, watch_path, queue: TaskQueue):
         self.watch_path = watch_path
         self.queue = queue
         self.logger = logging.getLogger(__name__)
         self.processed_dir = os.path.join(watch_path, "processed")
         os.makedirs(self.processed_dir, exist_ok=True)
+        self.file_receive_counter = meter.create_counter(
+            "file_receive",
+            description="Number of files read"
+        )
 
     def on_created(self, event):
         if event.is_directory:
@@ -30,6 +34,7 @@ class TodoFileHandler(FileSystemEventHandler):
                 with open(filepath, 'r', encoding='utf-8') as f:
                     content = f.read()
                 item = {"source": "file", "path": filepath, "content": content}
+                self.file_receive_counter.add(1)
                 self.queue.add(item)
                 self.logger.debug(f"File content queued: {filepath}")
 

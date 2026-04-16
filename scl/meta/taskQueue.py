@@ -5,12 +5,10 @@ It has method for just receive and return the tasks
 If the queue is empty, return None
 """
 
-from typing import Any, Optional
-from scl.otel.otel import task_enqueue_counter, task_dequeue_counter
-from scl.otel.otel import tracer
 import queue
+from typing import Any, Optional
+from scl.otel.otel import tracer,meter
 from opentelemetry import trace
-
 
 class TaskQueue:
     """带有追踪和指标的队列包装器"""
@@ -20,6 +18,15 @@ class TaskQueue:
         初始化队列处理器
         """
         self._queue = queue.Queue()
+        self.task_enqueue_counter = meter.create_counter(
+            "task_enqueue",
+            description="Number of items added to the queue"
+        )
+
+        self.task_dequeue_counter = meter.create_counter(
+            "task_dequeue",
+            description="Number of items removed from the queue"
+        )
 
     @tracer.start_as_current_span("add task to queue")
     def add(self, item: Any) -> None:
@@ -32,7 +39,7 @@ class TaskQueue:
         current_span.set_attribute("queue.item", str(item))
         self._queue.put(item)
         # 增加计数器
-        task_enqueue_counter.add(1)
+        self.task_enqueue_counter.add(1)
         # 可选：记录队列大小作为指标
         queue_size = self._queue.qsize()
         current_span.set_attribute("queue.size.after_add", queue_size)
@@ -51,7 +58,7 @@ class TaskQueue:
         try:
             item = self._queue.get(block=block, timeout=timeout)
             current_span.set_attribute("queue.item", str(item))
-            task_dequeue_counter.add(1)
+            self.task_dequeue_counter.add(1)
             queue_size = self._queue.qsize()
             current_span.set_attribute("queue.size.after_get", queue_size)
             return item

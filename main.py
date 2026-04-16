@@ -7,9 +7,8 @@ import time
 from scl.meta.taskQueue import TaskQueue
 
 from scl.listener.restful_watch import RestFulHandler
-from todo_processor import TodoProcessor
-from scl.listener.file_watch import TodoFileHandler
-
+from scl.listener.file_watch import FileHandler
+from scl.task_processor import TaskProcessor
 # Setup telemetry
 logger = logging.getLogger(__name__)
 
@@ -22,11 +21,11 @@ def main():
     os.makedirs(watch_dir, exist_ok=True)
 
     # Start todo processor
-    processor = TodoProcessor(todo_queue)
+    processor = TaskProcessor(todo_queue)
     processor.start()
 
     # Start listeners
-    file_handler = TodoFileHandler(watch_dir, todo_queue)
+    file_handler = FileHandler(watch_dir, todo_queue)
     rest_handler = RestFulHandler(todo_queue, host="0.0.0.0", port="8080")
 
     file_observer = file_handler.start()
