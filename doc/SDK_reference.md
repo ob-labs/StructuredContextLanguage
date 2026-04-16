@@ -1,14 +1,13 @@
 # SDK reference
 ```
 # Setup telemetry
-tracer, meter = setup_telemetry()
 logger = logging.getLogger(__name__)
 
 # Global input queue
 todo_queue = TracedQueue(tracer, meter)
 
 # Start todo processor
-processor = TodoProcessor(tracer, meter, todo_queue)
+processor = TaskProcessor(tracer, meter, todo_queue)
 processor.start()
 
 # Start listeners
@@ -26,3 +25,14 @@ Impls for how receive data from outside and inside.
 
 Internal data structure define
 
+## ./embeddings
+
+embedding service
+
+## storage
+
+storage service
+
+## TaskProcessor
+
+class to process task

@@ -9,6 +9,7 @@ class Config:
     
     # 直接从环境变量获取值, something ground truth won't change
     otlp_endpoint: str = os.getenv("OTLP_ENDPOINT", "http://localhost:4318")
+    otlp_metrics_endpoint: str = os.getenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "http://localhost:4318")
     embedding_model: str = os.getenv("EMBEDDING_MODEL", "BAAI/bge-large-zh-v1.5")
     embedding_model_dims: int = int(os.getenv("EMBEDDING_MODEL_DIMS", "1024"))
     embedding_api_key: Optional[str] = os.getenv("EMBEDDING_API_KEY")

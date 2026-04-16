@@ -1,5 +1,5 @@
 """
-This module contains the TodoProcessor class, which is responsible for processing todo items.
+This module contains the TaskProcessor class, which is responsible for processing todo items.
 - It will consume the TaskQueue
 - It use a while true to consume items from the queue
 - If the item is empty then double the wait time for the queue and the max sleep time is 300s
@@ -11,16 +11,20 @@ from threading import Thread
 from queue import Empty
 
 from scl.meta.taskQueue import TaskQueue
-from scl.otel.otel import tracer
+from scl.otel.otel import tracer,meter
 from opentelemetry import trace
 
-class TodoProcessor:
+class TaskProcessor:
     """Processes todo items from a TaskQueue with exponential backoff on empty queue."""
 
     def __init__(self, input_queue: TaskQueue):
         self.input_queue = input_queue
         self.logger = logging.getLogger(__name__)
         self.thread = None
+        self.processed_counter = meter.create_counter(
+            "task_items_processed",
+            description="Number of task items processed"
+        )
 
     def start(self):
         """Start processing thread."""
@@ -62,4 +66,5 @@ class TodoProcessor:
         self.logger.info(f"Processing todo item: {item}")
         # 模拟处理逻辑
         time.sleep(0.1)
+        self.processed_counter.add(1)
         # Placeholder: 未来可能会生成新的 todo 并放回队列
