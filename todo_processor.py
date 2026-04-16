@@ -9,22 +9,16 @@ from scl.meta.taskQueue import TracedQueue
 
 import logging
 import time
-from scl.meta.taskQueue import TracedQueue
+from scl.meta.taskQueue import TaskQueue
+from scl.otel.otel import tracer
+from opentelemetry import trace
 from threading import Thread
 
 class TodoProcessor:
     """Placeholder class for processing todo items."""
-    def __init__(self, tracer, meter, input_queue: TracedQueue):
-        self.tracer = tracer
-        self.meter = meter
+    def __init__(self, input_queue: TaskQueue):
         self.input_queue = input_queue
         self.logger = logging.getLogger(__name__)
-
-        # Metrics
-        self.processed_counter = meter.create_counter(
-            "todo_items_processed",
-            description="Number of todo items processed"
-        )
 
     def start(self):
         """Start processing thread."""
@@ -41,13 +35,13 @@ class TodoProcessor:
                 # Queue empty or other error, continue
                 pass
 
+    @tracer.start_as_current_span("process todo item from queue")
     def _process_item(self, item):
         """Process a single todo item."""
-        with self.tracer.start_as_current_span("process_todo_item") as span:
-            span.set_attribute("todo.item.source", item.get("source", "unknown"))
-            self.logger.info(f"Processing todo item: {item}")
-            # Simulate work
-            time.sleep(0.1)
-            # Placeholder: actual processing logic goes here
-            self.processed_counter.add(1, {"source": item.get("source", "unknown")})
-            # In future, this might generate new todo items and put them back into queue
+        current_span = trace.get_current_span()
+        current_span.set_attribute("todo.item.source", item.get("source", "unknown"))
+        self.logger.info(f"Processing todo item: {item}")
+        time.sleep(0.1)
+        # Placeholder: actual processing logic goes here
+        self.processed_counter.add(1, {"source": item.get("source", "unknown")})
+        # In future, this might generate new todo items and put them back into queue

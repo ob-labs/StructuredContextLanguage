@@ -4,22 +4,17 @@ import signal
 import sys
 import threading
 import time
-from scl.meta.taskQueue import TracedQueue
+from scl.meta.taskQueue import TaskQueue
 
 from scl.listener.restful_watch import RestFulHandler
-
-from telemetry import setup_telemetry
 from todo_processor import TodoProcessor
 from scl.listener.file_watch import TodoFileHandler
 
 # Setup telemetry
-tracer, meter = setup_telemetry()
 logger = logging.getLogger(__name__)
 
-# Global input queue
-todo_queue = TracedQueue(tracer, meter)
-
 def main():
+    todo_queue = TaskQueue()
     logger.info("Starting Todo Receiver Application")
 
     # Ensure watch directory exists
@@ -27,20 +22,20 @@ def main():
     os.makedirs(watch_dir, exist_ok=True)
 
     # Start todo processor
-    processor = TodoProcessor(tracer, meter, todo_queue)
+    processor = TodoProcessor(todo_queue)
     processor.start()
 
     # Start listeners
-    file_handler = TodoFileHandler(watch_dir, tracer, todo_queue)
-    rest_handler = RestFulHandler(todo_queue, host="0.0.0.0", port="8000", tracer=tracer, meter=meter)
+    #file_handler = TodoFileHandler(watch_dir, todo_queue)
+    rest_handler = RestFulHandler(todo_queue, host="0.0.0.0", port="8080")
 
-    file_observer = file_handler.start()
+    #file_observer = file_handler.start()
     api_thread = threading.Thread(target=rest_handler.start, daemon=True)
     # Wait for termination signal
     def shutdown(signum, frame):
         logger.info("Shutting down...")
-        file_observer.stop()
-        file_observer.join()
+        #file_observer.stop()
+        #file_observer.join()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, shutdown)

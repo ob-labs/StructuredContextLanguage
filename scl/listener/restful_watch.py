@@ -7,13 +7,14 @@ from typing import Dict
 
 import uvicorn
 from fastapi import FastAPI, Request
-
-from scl.meta.taskQueue import TracedQueue
+from scl.otel.otel import tracer
+from scl.meta.taskQueue import TaskQueue
+from opentelemetry import trace
 
 class RestFulHandler:
     """REST API 处理器，负责接收 Todo 项并放入队列"""
 
-    def __init__(self, todo_queue: TracedQueue, host:str = "0.0.0.0", port: int = 8000, log_level: str = "info", tracer=None, meter=None):
+    def __init__(self, todo_queue: TaskQueue, host:str = "0.0.0.0", port: int = 8000, log_level: str = "info"):
         """
         初始化 REST 处理器
 
@@ -21,11 +22,8 @@ class RestFulHandler:
         """
         self.todo_queue = todo_queue
         self.host = host
-        self.port = port
+        self.port = int(port)
         self.log_level = log_level
-        # 设置遥测（tracer 用于链路追踪，meter 用于指标）
-        self.tracer= tracer
-        self.meter = meter
         # 配置日志
         self.logger = logging.getLogger(self.__class__.__name__)
         # 创建 FastAPI 应用
@@ -33,6 +31,7 @@ class RestFulHandler:
         # 注册路由
         self.app.add_api_route("/todo", self._receive_todo, methods=["POST"])
 
+    @tracer.start_as_current_span("rest api receive task")
     async def _receive_todo(self, request: Request) -> Dict[str, str]:
         """
         处理 POST /todo 请求的内部方法
@@ -40,12 +39,12 @@ class RestFulHandler:
         :param request: FastAPI 请求对象
         :return: 响应状态
         """
-        with self.tracer.start_as_current_span("rest_receive_todo") as span:
-            data = await request.json()
-            span.set_attribute("todo.rest.data", str(data))
-            self.logger.info(f"Received todo via REST: {data}")
-            self.todo_queue.add({"source": "rest", "data": data})
-            return {"status": "accepted"}
+        current_span = trace.get_current_span()
+        data = await request.json()
+        current_span.set_attribute("todo.rest.data", str(data))
+        self.logger.info(f"Received todo via REST: {data}")
+        self.todo_queue.add({"source": "rest", "data": data})
+        return {"status": "accepted"}
 
     def start(self):
         """
