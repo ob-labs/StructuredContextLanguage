@@ -2,23 +2,21 @@
 File Watcher for Todo Items
 """
 import logging
-from scl.meta.taskQueue import TracedQueue
-
+from scl.meta.taskQueue import TaskQueue
+from scl.otel.otel import tracer
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-
 class TodoFileHandler(FileSystemEventHandler):
-    def __init__(self, watch_path, tracer, queue: TracedQueue):
+    def __init__(self, watch_path, queue: TaskQueue):
         self.watch_path = watch_path
-        self.tracer = tracer
         self.queue = queue
         self.logger = logging.getLogger(__name__)
 
     def on_created(self, event):
         if event.is_directory:
             return
-        with self.tracer.start_as_current_span("file_watcher_new_file") as span:
+        with tracer.start_as_current_span("file_watcher_new_file") as span:
             filepath = event.src_path
             span.set_attribute("file.path", filepath)
             self.logger.info(f"New file detected: {filepath}")

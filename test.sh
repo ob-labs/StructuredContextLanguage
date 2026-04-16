@@ -6,14 +6,14 @@ set -e
 echo "=== Testing Todo Receiver ==="
 
 # Check if service is running
-if ! curl -s http://localhost:8000/docs > /dev/null; then
+if ! curl -s http://localhost:8080/docs > /dev/null; then
     echo "Error: Service not running. Start main.py first."
     exit 1
 fi
 
 # 1. Test REST API
 echo "Sending REST todo..."
-curl -X POST http://localhost:8000/todo \
+curl -X POST http://localhost:8080/todo \
     -H "Content-Type: application/json" \
     -d '{"title": "Test REST", "description": "From test script"}'
 echo -e "\n"
