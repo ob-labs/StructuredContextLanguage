@@ -26,16 +26,16 @@ def main():
     processor.start()
 
     # Start listeners
-    #file_handler = TodoFileHandler(watch_dir, todo_queue)
+    file_handler = TodoFileHandler(watch_dir, todo_queue)
     rest_handler = RestFulHandler(todo_queue, host="0.0.0.0", port="8080")
 
-    #file_observer = file_handler.start()
+    file_observer = file_handler.start()
     api_thread = threading.Thread(target=rest_handler.start, daemon=True)
     # Wait for termination signal
     def shutdown(signum, frame):
         logger.info("Shutting down...")
-        #file_observer.stop()
-        #file_observer.join()
+        file_observer.stop()
+        file_observer.join()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, shutdown)
