@@ -16,7 +16,7 @@
 			- [x] 文件目录扫描启动方式
 			- [x] 支持SDK直接使用——代码使用
 		- [ ] 运维方式
-			- [ ] 暴露可观测性指标
+			- [x] 暴露可观测性指标
 			- [ ] hook（websocket形式）
 		- [ ] 执行过程多种模式
 			- [ ] 工具注册
@@ -44,3 +44,9 @@ _No response_
 ### Additional context
 
 _No response_
+
+
+taskQueue.py?
+- [ ] Persistent queue storage.
+- [ ] Queue size limit or backpressure handling.
+- [ ] Batch processing support.
