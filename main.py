@@ -11,6 +11,8 @@ from scl.listener.file_watch import FileHandler
 from scl.task_processor import TaskProcessor
 # Setup telemetry
 logger = logging.getLogger(__name__)
+from scl.otel.otel import init_telemetry
+init_telemetry()
 
 def main():
     todo_queue = TaskQueue()
