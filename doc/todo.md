@@ -50,3 +50,5 @@ taskQueue.py?
 - [ ] Persistent queue storage.
 - [ ] Queue size limit or backpressure handling.
 - [ ] Batch processing support.
+
+task.py as prompt template?

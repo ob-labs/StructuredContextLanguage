@@ -1,3 +1,6 @@
+"""
+When running in test, this module should ensure test script can be run without otel features.
+"""
 import os
 import logging
 from opentelemetry._logs import set_logger_provider
