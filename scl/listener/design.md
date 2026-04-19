@@ -1,7 +1,8 @@
 # listener package 
 
 1. Recevie data from 
-- folder scan as file_watch.py
+- folder scan as file_watch.py as 1st class citizen.
+- for either restful or internal, should write file, so that every thing can be recorded on disk by design.
 - rest api as restful_watch.py
 - internal produced as interal_watch.py
 

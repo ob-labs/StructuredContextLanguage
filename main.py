@@ -28,7 +28,7 @@ def main():
 
     # Start listeners
     file_handler = FileHandler(watch_dir, todo_queue)
-    rest_handler = RestFulHandler(todo_queue, host="0.0.0.0", port="8080")
+    rest_handler = RestFulHandler(watch_dir, host="0.0.0.0", port="8080")
 
     file_observer = file_handler.start()
     api_thread = threading.Thread(target=rest_handler.start, daemon=True)
