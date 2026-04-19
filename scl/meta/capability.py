@@ -1,14 +1,55 @@
+"""
+Capability Module
+
+Design Goals & Features:
+------------------------
+1. Provide a unified abstract base class for both Skill and FunctionCall implementations.
+2. Encapsulate common attributes: name, description, type, original_body, llm_description, function_impl.
+3. Support progressive loading via embedding vector of the description for RAG.
+4. Cached embedding computation to avoid repeated embedding calls.
+
+Project Constraints Applied:
+----------------------------
+- OpenTelemetry integrated for tracing, metrics, and structured logging.
+- Logger provides info and debug levels.
+- Dependencies are documented as `pip install` commands, not requirements.txt.
+"""
+import logging
 from abc import ABC, abstractmethod
 from typing import Optional, Dict
+
+# OpenTelemetry imports
+from opentelemetry import trace
+from scl.otel.otel import tracer, meter  # Assuming this is the correct import path
+
+# External embedding function (behavior: performs embedding operation)
 from scl.embeddings.impl import embed
+
+# Setup logger
+logger = logging.getLogger(__name__)
+
+# Setup metrics
+capability_embedding_counter = meter.create_counter(
+    "capability.embedding.generated",
+    description="Number of times embedding_description is computed for a Capability"
+)
 
 
 class Capability(ABC):
     """
     Abstract base class for Skill and FunctionCall classes.
     Provides a common interface for both skill-based and function call-based implementations.
+
+    Attributes:
+        _name (str): Name of the capability.
+        _type (str): Implementation type (e.g., 'skill', 'function').
+        _description (Optional[str]): Human-readable description.
+        _original_body (Optional[str]): Original source/body of the capability.
+        _llm_description (Optional[str]): LLM-generated description for tool usage.
+        _function_impl (Optional[str]): Actual code implementation for sandbox execution.
+        _embedding_description (Optional[Any]): Cached embedding vector of the description.
     """
-    
+
     def __init__(self,
                  name: str,
                  type: str,
@@ -24,45 +65,73 @@ class Capability(ABC):
         self._llm_description = llm_description
         self._function_impl = function_impl
 
+        logger.info(
+            "Initialized Capability",
+            extra={
+                "name": self._name,
+                "type": self._type,
+                "has_description": self._description is not None,
+                "has_function_impl": self._function_impl is not None
+            }
+        )
+
     @property
     def name(self) -> str:
-        """skill/function call名称"""
+        """Name of the skill/function call."""
         return self._name
 
     @property
     def description(self) -> str:
-        """函数描述 用于渐进式加载"""
+        """Function description for progressive loading."""
         return self._description
 
     @property
     def original_body(self) -> str:
-        """原始描述"""
+        """Original description body."""
         return self._original_body
 
     @property
+    @tracer.start_as_current_span("Capability.embedding_description.get")
     def embedding_description(self):
-        """函数描述 实际用于RAG渐进式加载"""
+        """
+        Embedding vector of the description used for RAG progressive loading.
+        Computed lazily and cached.
+        """
         if self._embedding_description is None:
-            self._embedding_description = embed(self._description)
+            current_span = trace.get_current_span()
+            current_span.set_attribute("capability.name", self._name)
+            current_span.set_attribute("capability.type", self._type)
+
+            logger.debug(f"Generating embedding for capability '{self._name}'")
+            try:
+                self._embedding_description = embed(self._description)
+                capability_embedding_counter.add(1, {"capability.type": self._type})
+                logger.info(f"Successfully generated embedding for capability '{self._name}'")
+            except Exception as e:
+                logger.error(f"Failed to generate embedding for capability '{self._name}': {e}", exc_info=True)
+                current_span.record_exception(e)
+                current_span.set_status(trace.Status(trace.StatusCode.ERROR, "Embedding generation failed"))
+                raise  # Re-raise after logging/tracing
+
         return self._embedding_description
 
     @property
     def type(self) -> str:
-        """实现类型"""
+        """Implementation type."""
         return self._type
 
     @property
     def llm_description(self) -> Optional[str]:
-        """LLM生成的描述 用于tool字段"""
+        """LLM-generated description for tool field."""
         return self._llm_description
 
     @property
     def function_impl(self) -> Optional[str]:
-        """函数实现 用于sandbox执行"""
+        """Function implementation for sandbox execution."""
         return self._function_impl
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(name='{self.name}'...')"
+        return f"{self.__class__.__name__}(name='{self.name}'...)"
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Capability):
@@ -70,3 +139,4 @@ class Capability(ABC):
         return (self._name == other._name and
                 self._description == other._description and
                 self._original_body == other._original_body)
+

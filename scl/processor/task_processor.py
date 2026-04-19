@@ -17,7 +17,7 @@ from typing import Optional
 
 from opentelemetry import trace
 
-from scl.meta.taskQueue import TaskQueue
+from scl.queue.taskQueue import TaskQueue
 from scl.meta.task import Task  # Task class definition
 from scl.otel.otel import tracer, meter
 

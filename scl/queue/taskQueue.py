@@ -20,7 +20,7 @@ from scl.otel.otel import meter, tracer
 from scl.meta.task import Task  # Actual Task class import
 
 if TYPE_CHECKING:
-    from scl.meta.taskProcessor import TaskProcessor  # For type hinting only
+    from scl.processor.task_processor import TaskProcessor
 
 logger = logging.getLogger(__name__)
 

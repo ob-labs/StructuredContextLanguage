@@ -12,5 +12,5 @@ For example scl/package/code.py mapping to scl/test/package/code.py
 
 Import the module under test
 from scl.listener.file_watch import FileHandler
-from scl.meta.taskQueue import TaskQueue
+from scl.queue.taskQueue import TaskQueue
 from scl.meta.task import Task

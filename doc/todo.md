@@ -47,9 +47,14 @@ _No response_
 
 
 taskQueue.py?
-- [ ] Persistent queue storage.
 - [ ] Queue size limit or backpressure handling.
 - [ ] Batch processing support.
+
+Cap.py?
+5. [Missing] Serialization/deserialization methods (to_dict, from_dict) for persistence.
+6. [Missing] Validation of function_impl code safety before sandbox execution.
+7. [Missing] Versioning support for capability changes.
+8. [Missing] Async support for embedding generation.
 
 task.py as prompt template?
 different type of queues(cap invoke queue, wait for human queue)
