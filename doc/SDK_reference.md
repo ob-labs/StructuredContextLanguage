@@ -1,5 +1,11 @@
 # SDK reference
 ```
+# Setup telemetry
+logger = logging.getLogger(__name__)
+from scl.otel.otel import init_telemetry
+init_telemetry()
+
+def main():
     todo_queue = TaskQueue()
     logger.info("Starting Todo Receiver Application")
 
@@ -13,7 +19,7 @@
 
     # Start listeners
     file_handler = FileHandler(watch_dir, todo_queue)
-    rest_handler = RestFulHandler(todo_queue, host="0.0.0.0", port="8080")
+    rest_handler = RestFulHandler(watch_dir, host="0.0.0.0", port="8080")
 
     file_observer = file_handler.start()
     api_thread = threading.Thread(target=rest_handler.start, daemon=True)
@@ -34,6 +40,9 @@
             time.sleep(1)
     except KeyboardInterrupt:
         shutdown(None, None)
+
+if __name__ == "__main__":
+    main()
 ```
 
 # Impl details
@@ -41,6 +50,7 @@
 ## ./listener
 
 Impls for how receive data from outside and inside.
+Note: That file listener always be 1st class citizen, so that everything keep on disk by design.
 
 ## ./meta
 

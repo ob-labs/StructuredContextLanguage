@@ -52,3 +52,5 @@ taskQueue.py?
 - [ ] Batch processing support.
 
 task.py as prompt template?
+different type of queues(cap invoke queue, wait for human queue)
+making service package for service.
