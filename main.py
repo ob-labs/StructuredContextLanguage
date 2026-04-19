@@ -4,11 +4,11 @@ import signal
 import sys
 import threading
 import time
-from scl.meta.taskQueue import TaskQueue
+from scl.queue.taskQueue import TaskQueue
 
 from scl.listener.restful_watch import RestFulHandler
 from scl.listener.file_watch import FileHandler
-from scl.task_processor import TaskProcessor
+from scl.processor.task_processor import TaskProcessor
 # Setup telemetry
 logger = logging.getLogger(__name__)
 from scl.otel.otel import init_telemetry

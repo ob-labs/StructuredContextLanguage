@@ -13,8 +13,10 @@ import pytest
 
 # Import the module under test
 from scl.listener.file_watch import FileHandler
-from scl.meta.taskQueue import TaskQueue
+from scl.queue.taskQueue import TaskQueue
+from scl.queue.capTaskQueues import CapabilityTaskQueues
 from scl.meta.task import Task
+from scl.meta.captask import CapTask
 from watchdog.events import FileCreatedEvent
 from watchdog.observers import Observer
 
@@ -26,6 +28,12 @@ def mock_task_queue():
 
 
 @pytest.fixture
+def mock_captask_queue():
+    """Fixture for a mocked CapabilityTaskQueues."""
+    return MagicMock(spec=CapabilityTaskQueues)
+
+
+@pytest.fixture
 def temp_watch_dir(tmp_path):
     """Fixture for a temporary watch directory."""
     watch_dir = tmp_path / "watch"
@@ -34,14 +42,14 @@ def temp_watch_dir(tmp_path):
 
 
 @pytest.fixture
-def handler(mock_task_queue, temp_watch_dir):
+def handler(mock_task_queue, mock_captask_queue, temp_watch_dir):
     """Fixture for a FileHandler instance with mocked dependencies."""
     with patch('scl.listener.file_watch.meter') as mock_meter, \
          patch('scl.listener.file_watch.tracer') as mock_tracer:
         # Mock counter creation - create separate counters for each metric
         mock_meter.create_counter.side_effect = lambda name, description: MagicMock()
 
-        handler = FileHandler(temp_watch_dir, mock_task_queue)
+        handler = FileHandler(temp_watch_dir, mock_task_queue, mock_captask_queue)
         handler.logger = MagicMock()
 
         # Replace actual file operations with mocks to avoid real FS interactions
@@ -52,21 +60,24 @@ def handler(mock_task_queue, temp_watch_dir):
 class TestFileHandler:
     """Test cases for FileHandler."""
 
-    def test_init_creates_directories(self, mock_task_queue, temp_watch_dir):
-        """Should create processed and failed directories on initialization."""
+    def test_init_creates_directories(self, mock_task_queue, mock_captask_queue, temp_watch_dir):
+        """Should create processed, processedCapTask, and failed directories on initialization."""
         processed_dir = Path(temp_watch_dir) / "processed"
+        processed_captask_dir = Path(temp_watch_dir) / "processedCapTask"
         failed_dir = Path(temp_watch_dir) / "failed"
 
         # Ensure they don't exist yet
         assert not processed_dir.exists()
+        assert not processed_captask_dir.exists()
         assert not failed_dir.exists()
 
         with patch('scl.listener.file_watch.meter') as mock_meter, \
              patch('scl.listener.file_watch.tracer'):
             mock_meter.create_counter.return_value = MagicMock()
-            FileHandler(temp_watch_dir, mock_task_queue)
+            FileHandler(temp_watch_dir, mock_task_queue, mock_captask_queue)
 
         assert processed_dir.exists()
+        assert processed_captask_dir.exists()
         assert failed_dir.exists()
 
     def test_on_created_ignores_directories(self, handler):
@@ -82,7 +93,7 @@ class TestFileHandler:
     def test_on_created_valid_json_task(self, handler, tmp_path):
         """Should process a valid JSON task file successfully."""
         file_path = tmp_path / "task.json"
-        file_path.write_text(json.dumps({"id": "123", "name": "Test Task"}))
+        file_path.write_text(json.dumps({"id": "123", "description": "Test Task"}))
 
         event = MagicMock(spec=FileCreatedEvent)
         event.is_directory = False
@@ -98,19 +109,19 @@ class TestFileHandler:
 
         # Assertions
         handler.file_receive_counter.add.assert_called_once_with(1)
-        handler.file_valid_counter.add.assert_called_once_with(1)
-        handler.queue.add.assert_called_once_with(mock_task)
+        handler.task_file_valid_counter.add.assert_called_once_with(1)
+        handler.task_queue.add.assert_called_once_with(mock_task)
         mock_move.assert_called_once_with(
             str(file_path),
             os.path.join(handler.processed_dir, "task.json")
         )
         handler.logger.info.assert_any_call(f"New file detected: {file_path}")
-        handler.logger.info.assert_any_call(f"File moved to processed: {os.path.join(handler.processed_dir, 'task.json')}")
+        handler.logger.info.assert_any_call(f"Task file moved to processed: {os.path.join(handler.processed_dir, 'task.json')}")
 
     def test_on_created_valid_yaml_task(self, handler, tmp_path):
         """Should process a valid YAML task file."""
         file_path = tmp_path / "task.yaml"
-        file_path.write_text(yaml.dump({"id": "456", "name": "YAML Task"}))
+        file_path.write_text(yaml.dump({"id": "456", "description": "YAML Task"}))
 
         event = MagicMock(spec=FileCreatedEvent)
         event.is_directory = False
@@ -122,11 +133,60 @@ class TestFileHandler:
             with patch('scl.listener.file_watch.shutil.move') as mock_move:
                 handler.on_created(event)
 
-        handler.file_valid_counter.add.assert_called_once_with(1)
-        handler.queue.add.assert_called_once_with(mock_task)
+        handler.task_file_valid_counter.add.assert_called_once_with(1)
+        handler.task_queue.add.assert_called_once_with(mock_task)
         mock_move.assert_called_once_with(
             str(file_path),
             os.path.join(handler.processed_dir, "task.yaml")
+        )
+
+    def test_on_created_valid_json_captask(self, handler, tmp_path):
+        """Should process a valid JSON CapTask file successfully."""
+        file_path = tmp_path / "captask.json"
+        file_path.write_text(json.dumps({"cap_name": "test_cap", "args": {"arg1": "value1"}}))
+
+        event = MagicMock(spec=FileCreatedEvent)
+        event.is_directory = False
+        event.src_path = str(file_path)
+
+        # Mock CapTask.from_dict
+        mock_captask = MagicMock()
+        mock_captask.hash = "abc123"
+        with patch.object(CapTask, 'from_dict', return_value=mock_captask):
+            with patch('scl.listener.file_watch.shutil.move') as mock_move:
+                handler.on_created(event)
+
+        # Assertions
+        handler.file_receive_counter.add.assert_called_once_with(1)
+        handler.captask_file_valid_counter.add.assert_called_once_with(1)
+        handler.captask_queue.add.assert_called_once_with(mock_captask)
+        mock_move.assert_called_once_with(
+            str(file_path),
+            os.path.join(handler.processed_captask_dir, "captask.json")
+        )
+        handler.logger.info.assert_any_call(f"New file detected: {file_path}")
+        handler.logger.info.assert_any_call(f"CapTask file moved to processedCapTask: {os.path.join(handler.processed_captask_dir, 'captask.json')}")
+
+    def test_on_created_valid_yaml_captask(self, handler, tmp_path):
+        """Should process a valid YAML CapTask file."""
+        file_path = tmp_path / "captask.yaml"
+        file_path.write_text(yaml.dump({"cap_name": "yaml_cap", "args": {"key": "value"}}))
+
+        event = MagicMock(spec=FileCreatedEvent)
+        event.is_directory = False
+        event.src_path = str(file_path)
+
+        mock_captask = MagicMock()
+        mock_captask.hash = "xyz789"
+        with patch.object(CapTask, 'from_dict', return_value=mock_captask):
+            with patch('scl.listener.file_watch.shutil.move') as mock_move:
+                handler.on_created(event)
+
+        handler.captask_file_valid_counter.add.assert_called_once_with(1)
+        handler.captask_queue.add.assert_called_once_with(mock_captask)
+        mock_move.assert_called_once_with(
+            str(file_path),
+            os.path.join(handler.processed_captask_dir, "captask.yaml")
         )
 
     def test_on_created_unsupported_extension(self, handler, tmp_path):
@@ -141,8 +201,9 @@ class TestFileHandler:
         handler.on_created(event)
 
         handler.file_invalid_counter.add.assert_called_once_with(1)
-        handler._move_to_failed.assert_called_once_with(str(file_path), reason="unsupported_format")
-        handler.queue.add.assert_not_called()
+        handler._move_to_failed.assert_called_once_with(str(file_path), reason="unsupported_extension")
+        handler.task_queue.add.assert_not_called()
+        handler.captask_queue.add.assert_not_called()
 
     def test_on_created_parse_error(self, handler, tmp_path):
         """Should handle invalid JSON/YAML content gracefully."""
@@ -157,28 +218,29 @@ class TestFileHandler:
 
         handler.file_invalid_counter.add.assert_called_once_with(1)
         handler._move_to_failed.assert_called_once_with(str(file_path), reason="parse_error")
-        handler.queue.add.assert_not_called()
+        handler.task_queue.add.assert_not_called()
+        handler.captask_queue.add.assert_not_called()
 
-    def test_on_created_conversion_error(self, handler, tmp_path):
-        """Should handle Task.from_dict conversion failure."""
+    def test_on_created_unrecognized_format(self, handler, tmp_path):
+        """Should move file to failed if it doesn't match Task or CapTask format."""
         file_path = tmp_path / "task.json"
-        file_path.write_text(json.dumps({"id": "789"}))
+        file_path.write_text(json.dumps({"id": "789"}))  # Missing 'description' for Task
 
         event = MagicMock(spec=FileCreatedEvent)
         event.is_directory = False
         event.src_path = str(file_path)
 
-        with patch.object(Task, 'from_dict', side_effect=ValueError("Invalid task data")):
-            handler.on_created(event)
+        handler.on_created(event)
 
-        handler.task_conversion_failure_counter.add.assert_called_once_with(1)
-        handler._move_to_failed.assert_called_once_with(str(file_path), reason="conversion_error")
-        handler.queue.add.assert_not_called()
+        handler.file_invalid_counter.add.assert_called_once_with(1)
+        handler._move_to_failed.assert_called_once_with(str(file_path), reason="unrecognized_format")
+        handler.task_queue.add.assert_not_called()
+        handler.captask_queue.add.assert_not_called()
 
     def test_on_created_queue_error(self, handler, tmp_path):
-        """Should move file to failed if queue.add raises exception."""
+        """Should move file to failed if task_queue.add raises exception."""
         file_path = tmp_path / "task.json"
-        file_path.write_text(json.dumps({"id": "101"}))
+        file_path.write_text(json.dumps({"id": "101", "description": "Test"}))
 
         event = MagicMock(spec=FileCreatedEvent)
         event.is_directory = False
@@ -186,51 +248,51 @@ class TestFileHandler:
 
         mock_task = MagicMock()
         with patch.object(Task, 'from_dict', return_value=mock_task):
-            handler.queue.add.side_effect = Exception("Queue unavailable")
+            handler.task_queue.add.side_effect = Exception("Queue unavailable")
             with patch('scl.listener.file_watch.shutil.move') as mock_move:
                 handler.on_created(event)
 
         # Should not move to processed
         mock_move.assert_not_called()
-        handler._move_to_failed.assert_called_once_with(str(file_path), reason="queue_error")
+        handler._move_to_failed.assert_called_once_with(str(file_path), reason="task_queue_error")
         # Valid counter should NOT be incremented (because queue failed)
-        handler.file_valid_counter.add.assert_not_called()
+        handler.task_file_valid_counter.add.assert_not_called()
 
-    def test_parse_task_file_json(self, handler, tmp_path):
-        """_parse_task_file should correctly load JSON."""
+    def test_parse_file_json(self, handler, tmp_path):
+        """_parse_file should correctly load JSON."""
         file_path = tmp_path / "data.json"
         data = {"key": "value", "num": 42}
         file_path.write_text(json.dumps(data))
 
-        result = handler._parse_task_file(str(file_path))
+        result = handler._parse_file(str(file_path))
         assert result == data
 
-    def test_parse_task_file_yaml(self, handler, tmp_path):
-        """_parse_task_file should correctly load YAML."""
+    def test_parse_file_yaml(self, handler, tmp_path):
+        """_parse_file should correctly load YAML."""
         file_path = tmp_path / "data.yaml"
         data = {"key": "value", "list": [1, 2, 3]}
         file_path.write_text(yaml.dump(data))
 
-        result = handler._parse_task_file(str(file_path))
+        result = handler._parse_file(str(file_path))
         assert result == data
 
-    def test_parse_task_file_yml_extension(self, handler, tmp_path):
-        """_parse_task_file should handle .yml extension."""
+    def test_parse_file_yml_extension(self, handler, tmp_path):
+        """_parse_file should handle .yml extension."""
         file_path = tmp_path / "data.yml"
         data = {"a": 1}
         file_path.write_text(yaml.dump(data))
 
-        result = handler._parse_task_file(str(file_path))
+        result = handler._parse_file(str(file_path))
         assert result == data
 
-    def test_is_task_format_file(self, handler):
-        """_is_task_format_file should accept json, yaml, yml."""
-        assert handler._is_task_format_file("task.json") is True
-        assert handler._is_task_format_file("task.yaml") is True
-        assert handler._is_task_format_file("task.yml") is True
-        assert handler._is_task_format_file("task.txt") is False
-        assert handler._is_task_format_file("task.JSON") is True  # case insensitive
-        assert handler._is_task_format_file("task.YAML") is True
+    def test_is_supported_extension(self, handler):
+        """_is_supported_extension should accept json, yaml, yml."""
+        assert handler._is_supported_extension("task.json") is True
+        assert handler._is_supported_extension("task.yaml") is True
+        assert handler._is_supported_extension("task.yml") is True
+        assert handler._is_supported_extension("task.txt") is False
+        assert handler._is_supported_extension("task.JSON") is True  # case insensitive
+        assert handler._is_supported_extension("task.YAML") is True
 
     def test_move_to_failed_success(self, handler, tmp_path):
         """_move_to_failed should move file with reason appended."""
@@ -281,7 +343,7 @@ class TestFileHandler:
     def test_tracing_instrumentation(self, handler, tmp_path):
         """Ensure OpenTelemetry span is created and attributes set."""
         file_path = tmp_path / "task.json"
-        file_path.write_text(json.dumps({"id": "trace-test"}))
+        file_path.write_text(json.dumps({"id": "trace-test", "description": "Test"}))
 
         event = MagicMock(spec=FileCreatedEvent)
         event.is_directory = False
@@ -301,12 +363,13 @@ class TestFileHandler:
             "file.moved_to",
             os.path.join(handler.processed_dir, "task.json")
         )
+        mock_span.set_attribute.assert_any_call("file.type", "Task")
 
     def test_metrics_counters_called(self, handler, tmp_path):
         """Validate that metrics counters are properly incremented."""
         # Test receive counter
         file_path = tmp_path / "task.json"
-        file_path.write_text(json.dumps({"id": "1"}))
+        file_path.write_text(json.dumps({"id": "1", "description": "Test"}))
 
         event = MagicMock(spec=FileCreatedEvent)
         event.is_directory = False
@@ -317,6 +380,40 @@ class TestFileHandler:
                 handler.on_created(event)
 
         handler.file_receive_counter.add.assert_called_once_with(1)
-        handler.file_valid_counter.add.assert_called_once_with(1)
+        handler.task_file_valid_counter.add.assert_called_once_with(1)
         handler.file_invalid_counter.add.assert_not_called()
-        handler.task_conversion_failure_counter.add.assert_not_called()
+
+    def test_on_created_captask_queue_error(self, handler, tmp_path):
+        """Should move file to failed if captask_queue.add raises exception."""
+        file_path = tmp_path / "captask.json"
+        file_path.write_text(json.dumps({"cap_name": "test_cap", "args": {}}))
+
+        event = MagicMock(spec=FileCreatedEvent)
+        event.is_directory = False
+        event.src_path = str(file_path)
+
+        mock_captask = MagicMock()
+        with patch.object(CapTask, 'from_dict', return_value=mock_captask):
+            handler.captask_queue.add.side_effect = Exception("CapTask Queue unavailable")
+            with patch('scl.listener.file_watch.shutil.move') as mock_move:
+                handler.on_created(event)
+
+        # Should not move to processedCapTask
+        mock_move.assert_not_called()
+        handler._move_to_failed.assert_called_once_with(str(file_path), reason="captask_queue_error")
+        # Valid counter should NOT be incremented (because queue failed)
+        handler.captask_file_valid_counter.add.assert_not_called()
+
+    def test_looks_like_task(self, handler):
+        """_looks_like_task should identify task format."""
+        assert handler._looks_like_task({"id": "123", "description": "Test"}) is True
+        assert handler._looks_like_task({"id": "123"}) is False
+        assert handler._looks_like_task({"description": "Test"}) is False
+        assert handler._looks_like_task({}) is False
+
+    def test_looks_like_captask(self, handler):
+        """_looks_like_captask should identify CapTask format."""
+        assert handler._looks_like_captask({"cap_name": "test", "args": {}}) is True
+        assert handler._looks_like_captask({"cap_name": "test"}) is False
+        assert handler._looks_like_captask({"args": {}}) is False
+        assert handler._looks_like_captask({}) is False
