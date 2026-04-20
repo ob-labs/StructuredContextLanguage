@@ -4,14 +4,16 @@ import signal
 import sys
 import threading
 import time
+
+from scl.config import config
 from scl.queue.taskQueue import TaskQueue
 from scl.queue.capTaskQueues import CapabilityTaskQueues
 from scl.queue.awaitingApproveQueue import AwaitingApproveQueue
 from scl.queue.awaitingCapTasksQueue import AwaitingCapTasksQueue
-
 from scl.listener.restful_watch import RestFulHandler
 from scl.listener.file_watch import FileHandler
 from scl.processor.task_processor import TaskProcessor
+
 # Setup telemetry
 logger = logging.getLogger(__name__)
 from scl.otel.otel import init_telemetry
@@ -25,8 +27,8 @@ def main():
     
     logger.info("Starting Todo Receiver Application")
 
-    # Ensure watch directory exists
-    watch_dir = os.getenv("TODO_WATCH_DIR", "./todo_folder")
+    # 从 config 读取监听目录
+    watch_dir = config.todo_watch_dir
     os.makedirs(watch_dir, exist_ok=True)
 
     # Start todo processor
@@ -41,11 +43,15 @@ def main():
         waiting_approval_queue=waiting_approval_queue,
         waiting_captask_queue=waiting_captask_queue
     )
-    rest_handler = RestFulHandler(watch_dir, host="0.0.0.0", port="8080")
+    rest_handler = RestFulHandler(
+        watch_dir,
+        host=config.api_host,
+        port=config.api_port
+    )
 
     file_observer = file_handler.start()
     api_thread = threading.Thread(target=rest_handler.start, daemon=True)
-    # Wait for termination signal
+
     def shutdown(signum, frame):
         logger.info("Shutting down...")
         file_observer.stop()
@@ -56,7 +62,6 @@ def main():
     signal.signal(signal.SIGTERM, shutdown)
     api_thread.start()
 
-    # Keep main thread alive
     try:
         while True:
             time.sleep(1)

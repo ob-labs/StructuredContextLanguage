@@ -1,7 +1,6 @@
 """
 When running in test, this module should ensure test script can be run without otel features.
 """
-import os
 import logging
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
@@ -17,22 +16,15 @@ except ImportError:
     OTLP_GRPC_LOG_AVAILABLE = False
     logging.warning("OTLP gRPC log exporter not available, logs will only go to console")
 
-# 尝试导入配置对象 (如果存在)
-try:
-    from scl.config import config
-    HAS_CONFIG = True
-except ImportError:
-    HAS_CONFIG = False
-    config = None
+# 导入配置对象
+from scl.config import config
 
-# 服务名称
-SERVICE_NAME_VALUE = "SCL"
+# 服务名称（可从 config 获取，若无则使用默认值）
+SERVICE_NAME_VALUE = getattr(config, "service_name", "SCL")
 
 def get_otlp_endpoint() -> str:
-    """获取 OTLP 端点地址，优先从 config 读取，否则从环境变量读取"""
-    if HAS_CONFIG and hasattr(config, 'otlp_endpoint') and config.otlp_endpoint:
-        return config.otlp_endpoint
-    return os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
+    """直接从 config 获取 OTLP 端点地址"""
+    return config.otlp_endpoint
 
 def setup_logs():
     """初始化 Logs"""
@@ -43,7 +35,7 @@ def setup_logs():
     set_logger_provider(logger_provider)
     
     if OTLP_GRPC_LOG_AVAILABLE:
-        # 注意: gRPC 导出器通常使用 4317 端口，如果用户配置的是 4318，尝试替换端口
+        # gRPC 导出器通常使用 4317 端口，若配置的是 4318 则替换端口
         log_endpoint = otlp_endpoint.replace(":4318", ":4317") if ":4318" in otlp_endpoint else otlp_endpoint
         log_exporter = OTLPLogExporter(endpoint=log_endpoint, insecure=True)
         logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
@@ -54,6 +46,8 @@ def setup_logs():
     LoggingInstrumentor().instrument(set_logging_format=True)
     handler = LoggingHandler(logger_provider=logger_provider)
     logging.getLogger().addHandler(handler)
-    logging.getLogger().setLevel(os.getenv("LOG_LEVEL", "INFO"))
+    
+    # 日志级别直接从 config 获取
+    logging.getLogger().setLevel(config.log_level)
     
     return logger_provider
