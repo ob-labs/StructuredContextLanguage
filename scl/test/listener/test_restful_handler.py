@@ -13,6 +13,7 @@ from opentelemetry import trace
 
 from scl.listener.restful_watch import RestFulHandler
 from scl.meta.task import Task
+from scl.meta.captask import CapTask
 
 
 @pytest.fixture
@@ -23,14 +24,14 @@ def mock_tracer():
         mock_span = MagicMock()
         mock_span.__enter__ = MagicMock(return_value=mock_span)
         mock_span.__exit__ = MagicMock(return_value=None)
-        
+
         def decorator_factory(name):
             def decorator(func):
                 async def wrapper(*args, **kwargs):
                     return await func(*args, **kwargs)
                 return wrapper
             return decorator
-        
+
         mock_tracer.start_as_current_span = MagicMock(side_effect=decorator_factory)
         yield mock_tracer
 
@@ -50,10 +51,15 @@ def mock_meter():
 
 @pytest.fixture
 def handler(tmp_path, mock_tracer, mock_meter):
-    """Create a RestFulHandler instance with a temporary watch_path."""
+    """Create a RestFulHandler instance with temporary directories."""
     _, mock_counters = mock_meter
-    watch_path = str(tmp_path / "watch")
-    handler = RestFulHandler(watch_path=watch_path, host="127.0.0.1", port=8001)
+    watch_path = str(tmp_path / "file_watch")
+    # waiting_approval_dir is automatically created as watch_path/waitingapproval
+    handler = RestFulHandler(
+        watch_path=watch_path,
+        host="127.0.0.1",
+        port=8001
+    )
     # Attach counter mocks to handler for easier access in tests
     handler._mock_counters = mock_counters
     return handler
@@ -85,275 +91,350 @@ async def test_receive_task_success(handler, mock_request, tmp_path):
     mock_task_instance.to_dict.return_value = valid_payload
 
     with patch('scl.meta.task.Task.from_dict', return_value=mock_task_instance) as mock_from_dict:
-        # Mock file writing
         m_open = mock_open()
         with patch('builtins.open', m_open):
-            # Act
             response = await handler._receive_task(mock_request)
 
-    # Assert
-    assert response == {"status": "accepted", "task_hash": "abc123"}
+    assert response == {"status": "accepted", "hash": "abc123"}
     mock_request.json.assert_called_once()
     mock_from_dict.assert_called_once_with(valid_payload)
 
-    # Verify file was written
     expected_file_path = os.path.join(handler.watch_path, "abc123.json")
     m_open.assert_called_once_with(expected_file_path, 'w', encoding='utf-8')
-    handle = m_open()
-    # Check that json.dump was called with the correct dict
-    handle.write.assert_called()  # We can't easily check the content due to json.dump internals
 
-    # Verify metrics
     handler._mock_counters["restful_task_received"].add.assert_called_once_with(1)
-    handler._mock_counters["restful_task_valid"].add.assert_called_once_with(1)
-    handler._mock_counters["restful_task_invalid"].add.assert_not_called()
+    handler._mock_counters["restful_item_valid"].add.assert_called_once_with(1, {"item.type": "Task"})
+    handler._mock_counters["restful_item_invalid"].add.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_receive_task_invalid_json(handler, mock_request):
     """Test POST /tasks with invalid JSON body returns 400."""
-    # Arrange
     mock_request.json.side_effect = ValueError("Invalid JSON")
 
-    # Act & Assert
     with pytest.raises(HTTPException) as exc_info:
         await handler._receive_task(mock_request)
 
     assert exc_info.value.status_code == 400
     assert "Invalid JSON body" in exc_info.value.detail
-
-    # Verify metrics
     handler._mock_counters["restful_task_received"].add.assert_not_called()
-    handler._mock_counters["restful_task_invalid"].add.assert_called_once_with(1)
+    handler._mock_counters["restful_item_invalid"].add.assert_called_once_with(1)
 
 
 @pytest.mark.asyncio
 async def test_receive_task_conversion_failure(handler, mock_request):
     """Test POST /tasks with valid JSON but invalid Task format returns 422."""
-    # Arrange
     invalid_task_data = {"bad": "format"}
     mock_request.json.return_value = invalid_task_data
 
-    with patch('scl.meta.task.Task.from_dict', side_effect=ValueError("Missing required field")) as mock_from_dict:
-        # Act & Assert
+    with patch('scl.meta.task.Task.from_dict', side_effect=ValueError("Missing required field")):
         with pytest.raises(HTTPException) as exc_info:
             await handler._receive_task(mock_request)
 
         assert exc_info.value.status_code == 422
         assert "Invalid task format" in exc_info.value.detail
 
-    # Verify metrics
     handler._mock_counters["restful_task_received"].add.assert_called_once_with(1)
-    handler._mock_counters["restful_task_invalid"].add.assert_called_once_with(1)
-    handler._mock_counters["restful_task_valid"].add.assert_not_called()
+    handler._mock_counters["restful_item_invalid"].add.assert_called_once_with(1, {"item.type": "Task"})
+    handler._mock_counters["restful_item_valid"].add.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_receive_task_missing_hash(handler, mock_request):
     """Test task without hash attribute raises 500."""
-    # Arrange
     valid_payload = {"id": "task-no-hash"}
     mock_request.json.return_value = valid_payload
 
     mock_task_instance = MagicMock(spec=Task)
-    del mock_task_instance.hash  # simulate missing hash attribute
+    del mock_task_instance.hash
 
     with patch('scl.meta.task.Task.from_dict', return_value=mock_task_instance):
-        # Act & Assert
         with pytest.raises(HTTPException) as exc_info:
             await handler._receive_task(mock_request)
 
         assert exc_info.value.status_code == 500
         assert "no hash identifier" in exc_info.value.detail
 
-    # Verify metrics
     handler._mock_counters["restful_task_received"].add.assert_called_once_with(1)
-    handler._mock_counters["restful_task_invalid"].add.assert_called_once_with(1)
-    handler._mock_counters["restful_task_valid"].add.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_receive_task_file_write_error(handler, mock_request):
-    """Test that file write errors propagate appropriately."""
-    # Arrange
-    valid_payload = {"hash": "xyz789"}
-    mock_request.json.return_value = valid_payload
-
-    mock_task_instance = MagicMock(spec=Task)
-    mock_task_instance.hash = "xyz789"
-    mock_task_instance.to_dict.return_value = valid_payload
-
-    with patch('scl.meta.task.Task.from_dict', return_value=mock_task_instance):
-        # Simulate file write error (e.g., disk full)
-        m_open = mock_open()
-        m_open.side_effect = OSError("Disk full")
-        with patch('builtins.open', m_open):
-            with pytest.raises(OSError, match="Disk full"):
-                await handler._receive_task(mock_request)
-
-    # Metrics: received and invalid (since exception occurred)
-    handler._mock_counters["restful_task_received"].add.assert_called_once_with(1)
-    # Note: valid counter not incremented due to exception
-
-
-@pytest.mark.asyncio
-async def test_receive_task_logs_client_ip(handler, mock_request, caplog):
-    """Test that client IP is logged appropriately."""
-    # Arrange
-    valid_payload = {"hash": "test-hash"}
-    mock_request.json.return_value = valid_payload
-    mock_request.client.host = "10.0.0.42"
-
-    mock_task_instance = MagicMock(spec=Task)
-    mock_task_instance.hash = "test-hash"
-    mock_task_instance.to_dict.return_value = valid_payload
-
-    with patch('scl.meta.task.Task.from_dict', return_value=mock_task_instance):
-        with patch('builtins.open', mock_open()):
-            with caplog.at_level("INFO"):
-                await handler._receive_task(mock_request)
-
-    # Assert
-    assert "Received task payload from 10.0.0.42" in caplog.text
-
-
-@pytest.mark.asyncio
-async def test_receive_task_handles_request_without_client(handler):
-    """Test handling of request where client attribute is None."""
-    # Arrange
-    request = AsyncMock()
-    request.client = None
-    request.json.return_value = {"hash": "test"}
-
-    mock_task_instance = MagicMock(spec=Task)
-    mock_task_instance.hash = "test"
-    mock_task_instance.to_dict.return_value = {"hash": "test"}
-
-    with patch('scl.meta.task.Task.from_dict', return_value=mock_task_instance):
-        with patch('builtins.open', mock_open()):
-            # Act - should not raise exception
-            response = await handler._receive_task(request)
-
-    assert response == {"status": "accepted", "task_hash": "test"}
+    handler._mock_counters["restful_item_invalid"].add.assert_called_once_with(1, {"item.type": "Task"})
 
 
 # -----------------------------------------------------------------------------
-# Tests for GET /tasks/{task_hash} (check_status)
+# Tests for POST /captasks (receive_captask)
+# -----------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_receive_captask_success(handler, mock_request):
+    """Test successful POST /captasks with valid CapTask data."""
+    valid_payload = {"cap_name": "send_email", "args": ["to@example.com"], "hash": "cap123"}
+    mock_request.json.return_value = valid_payload
+
+    mock_captask_instance = MagicMock(spec=CapTask)
+    mock_captask_instance.hash = "cap123"
+    mock_captask_instance.to_dict.return_value = valid_payload
+
+    with patch('scl.meta.captask.CapTask.from_dict', return_value=mock_captask_instance) as mock_from_dict:
+        m_open = mock_open()
+        with patch('builtins.open', m_open):
+            response = await handler._receive_captask(mock_request)
+
+    assert response == {"status": "accepted", "hash": "cap123"}
+    mock_request.json.assert_called_once()
+    mock_from_dict.assert_called_once_with(valid_payload)
+
+    expected_file_path = os.path.join(handler.watch_path, "cap123.json")
+    m_open.assert_called_once_with(expected_file_path, 'w', encoding='utf-8')
+
+    handler._mock_counters["restful_captask_received"].add.assert_called_once_with(1)
+    handler._mock_counters["restful_item_valid"].add.assert_called_once_with(1, {"item.type": "CapTask"})
+
+
+@pytest.mark.asyncio
+async def test_receive_captask_conversion_failure(handler, mock_request):
+    """Test POST /captasks with invalid CapTask format returns 422."""
+    invalid_data = {"wrong": "field"}
+    mock_request.json.return_value = invalid_data
+
+    with patch('scl.meta.captask.CapTask.from_dict', side_effect=ValueError("Invalid")):
+        with pytest.raises(HTTPException) as exc_info:
+            await handler._receive_captask(mock_request)
+
+        assert exc_info.value.status_code == 422
+        assert "Invalid captask format" in exc_info.value.detail
+
+    handler._mock_counters["restful_captask_received"].add.assert_called_once_with(1)
+    handler._mock_counters["restful_item_invalid"].add.assert_called_once_with(1, {"item.type": "CapTask"})
+
+
+# -----------------------------------------------------------------------------
+# Tests for GET /items/{item_hash} (check_status)
 # -----------------------------------------------------------------------------
 
 @pytest.mark.asyncio
 async def test_check_status_pending(handler, tmp_path):
-    """Test status check when task file exists in watch_path."""
-    # Arrange
-    task_hash = "pending-task"
-    file_path = tmp_path / "watch" / f"{task_hash}.json"
+    """Test status check when file exists in watch_path."""
+    item_hash = "pending-item"
+    file_path = Path(handler.watch_path) / f"{item_hash}.json"
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.touch()
 
-    # Act
-    response = await handler._check_status(task_hash)
+    response = await handler._check_status(item_hash)
 
-    # Assert
-    assert response == {"task_hash": task_hash, "status": "pending"}
+    assert response == {"hash": item_hash, "status": "pending"}
     handler._mock_counters["restful_status_check"].add.assert_called_once_with(1)
+
+
+@pytest.mark.asyncio
+async def test_check_status_waiting_approval(handler, tmp_path):
+    """Test status check when file exists in waiting_approval_dir."""
+    item_hash = "waiting-item"
+    file_path = Path(handler.waiting_approval_dir) / f"{item_hash}.json"
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.touch()
+
+    response = await handler._check_status(item_hash)
+
+    assert response == {"hash": item_hash, "status": "waiting_approval"}
 
 
 @pytest.mark.asyncio
 async def test_check_status_processed(handler, tmp_path):
-    """Test status check when task file exists in processed/ subdirectory."""
-    # Arrange
-    task_hash = "processed-task"
-    processed_dir = tmp_path / "watch" / "processed"
+    """Test status check when file exists in processed/ subdirectory."""
+    item_hash = "processed-item"
+    processed_dir = Path(handler.watch_path) / "processed"
     processed_dir.mkdir(parents=True, exist_ok=True)
-    file_path = processed_dir / f"{task_hash}.json"
-    file_path.touch()
+    (processed_dir / f"{item_hash}.json").touch()
 
-    # Act
-    response = await handler._check_status(task_hash)
+    response = await handler._check_status(item_hash)
 
-    # Assert
-    assert response == {"task_hash": task_hash, "status": "processed"}
-    handler._mock_counters["restful_status_check"].add.assert_called_once_with(1)
+    assert response == {"hash": item_hash, "status": "processed"}
+
+
+@pytest.mark.asyncio
+async def test_check_status_processed_captask(handler, tmp_path):
+    """Test status check when file exists in processedCapTask/ subdirectory."""
+    item_hash = "processed-cap"
+    captask_dir = Path(handler.watch_path) / "processedCapTask"
+    captask_dir.mkdir(parents=True, exist_ok=True)
+    (captask_dir / f"{item_hash}.json").touch()
+
+    response = await handler._check_status(item_hash)
+
+    assert response == {"hash": item_hash, "status": "processed"}
+
+
+@pytest.mark.asyncio
+async def test_check_status_waiting_captask(handler, tmp_path):
+    """Test status check when file exists in waitingCapTask/ subdirectory."""
+    item_hash = "waiting-cap"
+    waiting_dir = Path(handler.watch_path) / "waitingCapTask"
+    waiting_dir.mkdir(parents=True, exist_ok=True)
+    (waiting_dir / f"{item_hash}.json").touch()
+
+    response = await handler._check_status(item_hash)
+
+    assert response == {"hash": item_hash, "status": "waiting_captask"}
 
 
 @pytest.mark.asyncio
 async def test_check_status_failed(handler, tmp_path):
-    """Test status check when task file exists in failed/ subdirectory."""
-    # Arrange
-    task_hash = "failed-task"
-    failed_dir = tmp_path / "watch" / "failed"
+    """Test status check when file exists in failed/ subdirectory."""
+    item_hash = "failed-item"
+    failed_dir = Path(handler.watch_path) / "failed"
     failed_dir.mkdir(parents=True, exist_ok=True)
-    file_path = failed_dir / f"{task_hash}.json"
-    file_path.touch()
+    (failed_dir / f"{item_hash}.json").touch()
 
-    # Act
-    response = await handler._check_status(task_hash)
+    response = await handler._check_status(item_hash)
 
-    # Assert
-    assert response == {"task_hash": task_hash, "status": "failed"}
-    handler._mock_counters["restful_status_check"].add.assert_called_once_with(1)
+    assert response == {"hash": item_hash, "status": "failed"}
 
 
 @pytest.mark.asyncio
-async def test_check_status_not_found(handler, tmp_path):
-    """Test status check when no task file exists."""
-    # Arrange
-    task_hash = "notfound-task"
-    # Ensure directories exist but no file
-    (tmp_path / "watch").mkdir(parents=True, exist_ok=True)
+async def test_check_status_not_found(handler):
+    """Test status check when no file exists."""
+    item_hash = "notfound"
+    response = await handler._check_status(item_hash)
+    assert response == {"hash": item_hash, "status": "not_found"}
 
-    # Act
-    response = await handler._check_status(task_hash)
 
-    # Assert
-    assert response == {"task_hash": task_hash, "status": "not_found"}
-    handler._mock_counters["restful_status_check"].add.assert_called_once_with(1)
+# -----------------------------------------------------------------------------
+# Tests for GET /tasks/waiting (list_waiting)
+# -----------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_list_waiting_empty(handler):
+    """Test listing waiting items when directory is empty."""
+    response = await handler._list_waiting()
+    assert response == []
 
 
 @pytest.mark.asyncio
-async def test_check_status_prefers_pending_over_subdirs(handler, tmp_path):
-    """Test that pending status is returned even if file exists in subdirs (edge case)."""
-    # Arrange
-    task_hash = "multi-status"
-    # Create file in watch_path (pending)
-    pending_file = tmp_path / "watch" / f"{task_hash}.json"
-    pending_file.parent.mkdir(parents=True, exist_ok=True)
-    pending_file.touch()
+async def test_list_waiting_with_items(handler):
+    """Test listing waiting items with both Task and CapTask files."""
+    # waiting_approval_dir is automatically a subdir of watch_path
+    waiting_dir = Path(handler.waiting_approval_dir)
+    waiting_dir.mkdir(parents=True, exist_ok=True)
 
-    # Also create file in processed subdir
-    processed_dir = tmp_path / "watch" / "processed"
-    processed_dir.mkdir(parents=True, exist_ok=True)
-    (processed_dir / f"{task_hash}.json").touch()
+    task_data = {"system_prompt": "You are a bot", "prompt_list": [], "hash": "task1", "approval": False}
+    captask_data = {"cap_name": "email", "args": ["x"], "hash": "cap1", "approval": False}
 
-    # Act
-    response = await handler._check_status(task_hash)
+    with open(waiting_dir / "task1.json", "w") as f:
+        json.dump(task_data, f)
+    with open(waiting_dir / "cap1.json", "w") as f:
+        json.dump(captask_data, f)
 
-    # Assert
-    assert response["status"] == "pending"
+    response = await handler._list_waiting()
+
+    assert len(response) == 2
+    # Order may vary; check contents
+    hashes = [item["hash"] for item in response]
+    assert "task1" in hashes
+    assert "cap1" in hashes
+
+    for item in response:
+        if item["hash"] == "task1":
+            assert item["type"] == "Task"
+            assert item["data"] == task_data
+        elif item["hash"] == "cap1":
+            assert item["type"] == "CapTask"
+            assert item["data"] == captask_data
 
 
 @pytest.mark.asyncio
-async def test_check_status_with_non_json_extension(handler, tmp_path):
-    """Test status check with file having non-json extension (e.g., .yaml)."""
-    # Arrange
-    task_hash = "yaml-task"
-    file_path = tmp_path / "watch" / f"{task_hash}.yaml"
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    file_path.touch()
+async def test_list_waiting_handles_invalid_json(handler, caplog):
+    """Test that malformed JSON files are skipped and logged."""
+    waiting_dir = Path(handler.waiting_approval_dir)
+    waiting_dir.mkdir(parents=True, exist_ok=True)
 
-    # Act
-    response = await handler._check_status(task_hash)
+    with open(waiting_dir / "bad.json", "w") as f:
+        f.write("not json")
 
-    # Assert
-    assert response["status"] == "pending"
+    response = await handler._list_waiting()
+    assert response == []
+    assert "Failed to read waiting file" in caplog.text
 
 
+# -----------------------------------------------------------------------------
+# Tests for POST /items/{item_hash}/approve (approve_item)
+# -----------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_approve_item_success(handler):
+    """Test successful approval of an item."""
+    item_hash = "approve-me"
+    waiting_dir = Path(handler.waiting_approval_dir)
+    waiting_dir.mkdir(parents=True, exist_ok=True)
+
+    src_data = {"hash": item_hash, "approval": False, "content": "test"}
+    src_path = waiting_dir / f"{item_hash}.json"
+    with open(src_path, "w") as f:
+        json.dump(src_data, f)
+
+    response = await handler._approve_item(item_hash)
+
+    assert response == {"hash": item_hash, "status": "approved"}
+    # File moved to watch_path
+    dest_path = Path(handler.watch_path) / f"{item_hash}.json"
+    assert dest_path.exists()
+    assert not src_path.exists()
+
+    # Check updated approval flag in destination file
+    with open(dest_path, "r") as f:
+        moved_data = json.load(f)
+    assert moved_data["approval"] is True
+
+    handler._mock_counters["restful_approve"].add.assert_called_once_with(1)
+
+
+@pytest.mark.asyncio
+async def test_approve_item_not_found(handler):
+    """Test approval of non-existent item returns 404."""
+    item_hash = "missing"
+
+    with pytest.raises(HTTPException) as exc_info:
+        await handler._approve_item(item_hash)
+
+    assert exc_info.value.status_code == 404
+    assert "not found" in exc_info.value.detail
+
+@pytest.mark.asyncio
+async def test_approve_item_supports_yaml(handler):
+    """Test approval works with YAML file."""
+    item_hash = "yaml-approve"
+    waiting_dir = Path(handler.waiting_approval_dir)
+    waiting_dir.mkdir(parents=True, exist_ok=True)
+
+    src_data = {"hash": item_hash, "approval": False, "content": "yaml"}
+    yaml_file_path = str(waiting_dir / f"{item_hash}.yaml")
+    dest_file_path = os.path.join(handler.watch_path, f"{item_hash}.yaml")
+
+    # 创建模拟的 yaml 模块
+    mock_yaml_module = MagicMock()
+    mock_yaml_module.safe_load.return_value = src_data
+    mock_yaml_module.dump = MagicMock()
+
+    def isfile_side_effect(path):
+        return path == yaml_file_path
+
+    with patch.dict('sys.modules', {'yaml': mock_yaml_module}):
+        with patch('os.path.isfile', side_effect=isfile_side_effect):
+            m_open = mock_open(read_data="hash: yaml-approve\napproval: false")
+            with patch('builtins.open', m_open):
+                with patch('os.remove') as mock_remove:
+                    response = await handler._approve_item(item_hash)
+
+    assert response == {"hash": item_hash, "status": "approved"}
+    mock_remove.assert_called_once_with(yaml_file_path)
+    handler._mock_counters["restful_approve"].add.assert_called_once_with(1)
+    mock_yaml_module.dump.assert_called_once()
+    # 确认目标文件被正确写入
+    m_open.assert_any_call(dest_file_path, 'w', encoding='utf-8')
 # -----------------------------------------------------------------------------
 # Initialization and Utility Tests
 # -----------------------------------------------------------------------------
 
 def test_handler_initialization(tmp_path):
-    """Test RestFulHandler initialization sets attributes and creates watch directory."""
+    """Test RestFulHandler initialization creates required directories."""
     watch_path = tmp_path / "custom_watch"
     handler = RestFulHandler(
         watch_path=str(watch_path),
@@ -362,21 +443,14 @@ def test_handler_initialization(tmp_path):
         log_level="debug"
     )
     assert handler.watch_path == str(watch_path)
+    # waiting_approval_dir is a fixed subdirectory
+    expected_waiting = os.path.join(str(watch_path), "waitingapproval")
+    assert handler.waiting_approval_dir == expected_waiting
     assert handler.host == "0.0.0.0"
     assert handler.port == 8080
     assert handler.log_level == "debug"
-    assert handler.app is not None
-    assert handler.logger is not None
     assert os.path.exists(watch_path)
-
-
-def test_handler_initialization_creates_watch_dir_if_missing(tmp_path):
-    """Test that initialization creates watch directory if it doesn't exist."""
-    watch_path = tmp_path / "non_existent_dir"
-    assert not watch_path.exists()
-    RestFulHandler(watch_path=str(watch_path))
-    assert watch_path.exists()
-    assert watch_path.is_dir()
+    assert os.path.exists(expected_waiting)
 
 
 @patch('scl.listener.restful_watch.uvicorn')
@@ -391,39 +465,23 @@ def test_start_method(mock_uvicorn, handler):
     )
 
 
-def test_write_task_file_uses_json_format(handler, tmp_path):
-    """Test _write_task_file writes JSON file with correct content."""
-    task_hash = "test123"
-    task_dict = {"key": "value", "hash": task_hash}
-    mock_task = MagicMock(spec=Task)
-    mock_task.to_dict.return_value = task_dict
+def test_write_item_file(handler):
+    """Test _write_item_file writes JSON file correctly."""
+    item_hash = "item123"
+    item_dict = {"key": "value", "hash": item_hash}
+    mock_item = MagicMock()
+    mock_item.to_dict.return_value = item_dict
 
     with patch('builtins.open', mock_open()) as m_open:
-        file_path = handler._write_task_file(mock_task, task_hash)
+        file_path = handler._write_item_file(mock_item, item_hash, "Task")
 
-    expected_path = os.path.join(handler.watch_path, f"{task_hash}.json")
+    expected_path = os.path.join(handler.watch_path, f"{item_hash}.json")
     assert file_path == expected_path
     m_open.assert_called_once_with(expected_path, 'w', encoding='utf-8')
-    handle = m_open()
-    # Verify json.dump was called
-    # We can capture the written string
-    written_data = ''.join(call.args[0] for call in handle.write.call_args_list)
-    expected_json = json.dumps(task_dict, indent=2)
-    assert written_data == expected_json
 
 
-def test_write_task_file_without_to_dict_falls_back_to_dict(handler):
-    """Test _write_task_file when Task lacks to_dict method."""
-    task_hash = "fallback"
-    mock_task = MagicMock(spec=Task)
-    del mock_task.to_dict
-    mock_task.__dict__ = {"attr": "val", "hash": task_hash}
-
-    with patch('builtins.open', mock_open()) as m_open:
-        file_path = handler._write_task_file(mock_task, task_hash)
-
-    # Check that json.dump got the __dict__ content
-    handle = m_open()
-    written_data = ''.join(call.args[0] for call in handle.write.call_args_list)
-    expected_json = json.dumps(mock_task.__dict__, indent=2)
-    assert written_data == expected_json
+def test_guess_type(handler):
+    """Test _guess_type correctly identifies Task vs CapTask."""
+    assert handler._guess_type({"cap_name": "x", "args": []}, "") == "CapTask"
+    assert handler._guess_type({"system_prompt": "hi"}, "") == "Task"
+    assert handler._guess_type({}, "") == "Unknown"

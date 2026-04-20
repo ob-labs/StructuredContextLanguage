@@ -2,8 +2,10 @@
 File Watcher for Todo Items
 1. read files from a specific folder.
 2. if the file is task is scl.meta.task format (either json or yaml), accept format file.
-2.1. it converts the task from file into a task instance and put into queue as a TaskQueue instance.
-2.2. move the file into processed folder.
+2.1 it converts the task from file into a task instance 
+2.1.1 if the task instance got approval put into queue as a TaskQueue instance and move the file into processed folder.
+2.1.2 if the task instance is not got approval put into waitingapproval folder and move the file into waitingapproval folder.
+2.1.3 if the task instance has CapTask to completed put into waitingCapTask queue and move the file into waitingCapTask folder.
 
 3. if the file is scl.meta.CapTask format (either json or yaml), accept format file.
 3.1. it converts the CapTask from file into a CapTask instance and put into queue as a CapTaskQueues instance.
@@ -24,6 +26,8 @@ from watchdog.observers import Observer
 
 from scl.queue.taskQueue import TaskQueue
 from scl.queue.capTaskQueues import CapabilityTaskQueues
+from scl.queue.awaitingApproveQueue import AwaitingApproveQueue
+from scl.queue.awaitingCapTasksQueue import AwaitingCapTasksQueue
 from scl.meta.task import Task
 from scl.meta.captask import CapTask
 from scl.otel.otel import tracer, meter
@@ -34,25 +38,66 @@ class FileHandler(FileSystemEventHandler):
     """
     Watches a directory for new task files (JSON/YAML), validates them,
     converts to Task or CapTask objects, and queues them appropriately.
+
+    Example usage:
+        from scl.queue.taskQueue import TaskQueue
+        from scl.queue.capabilityTaskQueues import CapabilityTaskQueues
+        from scl.queue.awaitingApproveQueue import AwaitingApproveQueue
+        from scl.queue.awaitingCapTasksQueue import AwaitingCapTasksQueue
+        from watchdog.observers import Observer
+        from file_handler import FileHandler  # adjust import
+
+        # Setup queues
+        task_queue = TaskQueue()
+        captask_queue = CapabilityTaskQueues()
+        waiting_approval_queue = AwaitingApproveQueue()
+        waiting_captask_queue = AwaitingCapTasksQueue()
+
+        # Create handler
+        handler = FileHandler(
+            watch_path="/path/to/watch",
+            task_queue=task_queue,
+            captask_queue=captask_queue,
+            waiting_approval_queue=waiting_approval_queue,
+            waiting_captask_queue=waiting_captask_queue
+        )
+
+        # Start watching
+        observer = handler.start()
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            observer.stop()
+        observer.join()
     """
 
     def __init__(
         self,
         watch_path: str,
         task_queue: TaskQueue,
-        captask_queue: CapabilityTaskQueues
+        captask_queue: CapabilityTaskQueues,
+        waiting_approval_queue: AwaitingApproveQueue,
+        waiting_captask_queue: AwaitingCapTasksQueue
     ):
         self.watch_path = watch_path
         self.task_queue = task_queue
         self.captask_queue = captask_queue
+        self.waiting_approval_queue = waiting_approval_queue
+        self.waiting_captask_queue = waiting_captask_queue
         self.logger = logging.getLogger(__name__)
 
         # Setup folders
         self.processed_dir = os.path.join(watch_path, "processed")
         self.processed_captask_dir = os.path.join(watch_path, "processedCapTask")
+        self.waiting_approval_dir = os.path.join(watch_path, "waitingapproval")
+        self.waiting_captask_dir = os.path.join(watch_path, "waitingCapTask")
         self.failed_dir = os.path.join(watch_path, "failed")
+
         os.makedirs(self.processed_dir, exist_ok=True)
         os.makedirs(self.processed_captask_dir, exist_ok=True)
+        os.makedirs(self.waiting_approval_dir, exist_ok=True)
+        os.makedirs(self.waiting_captask_dir, exist_ok=True)
         os.makedirs(self.failed_dir, exist_ok=True)
 
         # Metrics
@@ -60,9 +105,17 @@ class FileHandler(FileSystemEventHandler):
             "file_receive",
             description="Total number of files detected"
         )
-        self.task_file_valid_counter = meter.create_counter(
-            "task_file_valid",
-            description="Number of files successfully processed as Task"
+        self.task_file_approved_counter = meter.create_counter(
+            "task_file_approved",
+            description="Number of Task files that were approved and queued"
+        )
+        self.task_file_unapproved_counter = meter.create_counter(
+            "task_file_unapproved",
+            description="Number of Task files that lacked approval and were moved to waiting"
+        )
+        self.task_file_pending_captasks_counter = meter.create_counter(
+            "task_file_pending_captasks",
+            description="Number of Task files with incomplete CapTasks moved to waiting"
         )
         self.captask_file_valid_counter = meter.create_counter(
             "captask_file_valid",
@@ -132,79 +185,94 @@ class FileHandler(FileSystemEventHandler):
 
     def _process_as_task(self, filepath: str, filename: str, data: dict, span) -> bool:
         """
-        Attempt to convert data to a Task and enqueue.
+        Attempt to convert data to a Task and enqueue based on approval and CapTask status.
         Returns True if successful, False otherwise.
         """
-        # Simple heuristic: Task requires at least 'id' and 'description' fields.
-        # Adjust according to actual Task schema.
-        if not self._looks_like_task(data):
-            return False
-
+        # Validate by attempting conversion; Task.from_dict will raise if invalid
         try:
-            task_obj = Task.from_dict(data)   # Assuming a factory method exists
+            task_obj = Task.from_dict(data)
         except Exception as e:
-            self.logger.debug(f"File {filename} appears to be Task but conversion failed: {e}")
+            self.logger.debug(f"File {filename} cannot be converted to Task: {e}")
             return False
 
         try:
-            self.task_queue.add(task_obj)
-            self.logger.debug(f"Task from file queued: {filename} (ID: {getattr(task_obj, 'id', 'unknown')})")
-            self.task_file_valid_counter.add(1)
+            # Check approval status
+            if not task_obj.approval:
+                # Not approved -> waiting approval queue
+                self.waiting_approval_queue.add(task_obj)
+                self.task_file_unapproved_counter.add(1)
+                dest_dir = self.waiting_approval_dir
+                span.set_attribute("task.approval", False)
+                span.set_attribute("task.routed_to", "waiting_approval")
+                self.logger.info(f"Task {task_obj.hash} lacks approval, moved to waitingapproval")
+            elif not self._all_captasks_completed(task_obj):
+                # Approved but pending CapTasks -> waiting CapTasks queue
+                self.waiting_captask_queue.push(task_obj)
+                self.task_file_pending_captasks_counter.add(1)
+                dest_dir = self.waiting_captask_dir
+                span.set_attribute("task.approval", True)
+                span.set_attribute("task.pending_captasks", True)
+                span.set_attribute("task.routed_to", "waiting_captasks")
+                self.logger.info(f"Task {task_obj.hash} has pending CapTasks, moved to waitingCapTask")
+            else:
+                # Fully ready -> TaskQueue
+                self.task_queue.add(task_obj)
+                self.task_file_approved_counter.add(1)
+                dest_dir = self.processed_dir
+                span.set_attribute("task.approval", True)
+                span.set_attribute("task.pending_captasks", False)
+                span.set_attribute("task.routed_to", "task_queue")
+                self.logger.info(f"Task {task_obj.hash} approved and ready, moved to processed")
 
-            dest = os.path.join(self.processed_dir, filename)
+            # Move file to appropriate directory
+            dest = os.path.join(dest_dir, filename)
             shutil.move(filepath, dest)
             span.set_attribute("file.moved_to", dest)
             span.set_attribute("file.type", "Task")
-            self.logger.info(f"Task file moved to processed: {dest}")
+            self.logger.info(f"Task file moved: {dest}")
             return True
 
         except Exception as e:
-            self.logger.error(f"Error queueing or moving Task file {filename}: {e}")
+            self.logger.error(f"Error processing Task file {filename}: {e}")
             span.record_exception(e)
-            self._move_to_failed(filepath, reason="task_queue_error")
-            return True  # We handled the error, but file is moved to failed
+            self._move_to_failed(filepath, reason="task_processing_error")
+            return True  # Handled, but file moved to failed
+
+    def _all_captasks_completed(self, task: Task) -> bool:
+        """Return True if all CapTasks of the task are in a completed state."""
+        for cap in task.cap_tasks:
+            if cap.status not in ("Processed", "Error"):
+                return False
+        return True
 
     def _process_as_captask(self, filepath: str, filename: str, data: dict, span) -> bool:
         """
-        Attempt to convert data to a CapTask and enqueue.
+        Attempt to convert data to a CapTask and enqueue to CapabilityTaskQueues.
         Returns True if successful, False otherwise.
         """
-        # CapTask requires 'cap_name' and 'args' fields.
-        if not self._looks_like_captask(data):
-            return False
-
         try:
             captask_obj = CapTask.from_dict(data)
         except Exception as e:
-            self.logger.debug(f"File {filename} appears to be CapTask but conversion failed: {e}")
+            self.logger.debug(f"File {filename} cannot be converted to CapTask: {e}")
             return False
 
         try:
             self.captask_queue.add(captask_obj)
-            self.logger.debug(f"CapTask from file queued: {filename} (hash: {captask_obj.hash})")
             self.captask_file_valid_counter.add(1)
 
             dest = os.path.join(self.processed_captask_dir, filename)
             shutil.move(filepath, dest)
             span.set_attribute("file.moved_to", dest)
             span.set_attribute("file.type", "CapTask")
+            span.set_attribute("captask.hash", captask_obj.hash)
             self.logger.info(f"CapTask file moved to processedCapTask: {dest}")
             return True
 
         except Exception as e:
-            self.logger.error(f"Error queueing or moving CapTask file {filename}: {e}")
+            self.logger.error(f"Error queuing or moving CapTask file {filename}: {e}")
             span.record_exception(e)
             self._move_to_failed(filepath, reason="captask_queue_error")
             return True
-
-    def _looks_like_task(self, data: dict) -> bool:
-        """Heuristic to identify Task format."""
-        # Example: Task might have 'id', 'description', 'status'
-        return 'id' in data and 'description' in data
-
-    def _looks_like_captask(self, data: dict) -> bool:
-        """Heuristic to identify CapTask format."""
-        return 'cap_name' in data and 'args' in data
 
     def _move_to_failed(self, filepath: str, reason: str = ""):
         """
@@ -228,3 +296,11 @@ class FileHandler(FileSystemEventHandler):
         observer.start()
         self.logger.info(f"File watcher started on {self.watch_path}")
         return observer
+
+
+# Missing / Future Features (kept as comments for open-source tracking):
+# - Recursive directory watching.
+# - File debouncing to avoid processing partial writes.
+# - Atomic move/rename handling across filesystems.
+# - Configurable folder names.
+# - Support for other serialization formats (e.g., TOML).

@@ -56,6 +56,7 @@ Cap.py?
 7. [Missing] Versioning support for capability changes.
 8. [Missing] Async support for embedding generation.
 
+- notice refactor?
+
 task.py as prompt template?
-different type of queues(cap invoke queue, wait for human queue)
-making service package for service.
+making service package for service?

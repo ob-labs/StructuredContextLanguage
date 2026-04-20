@@ -5,6 +5,9 @@ import sys
 import threading
 import time
 from scl.queue.taskQueue import TaskQueue
+from scl.queue.capTaskQueues import CapabilityTaskQueues
+from scl.queue.awaitingApproveQueue import AwaitingApproveQueue
+from scl.queue.awaitingCapTasksQueue import AwaitingCapTasksQueue
 
 from scl.listener.restful_watch import RestFulHandler
 from scl.listener.file_watch import FileHandler
@@ -16,6 +19,10 @@ init_telemetry()
 
 def main():
     todo_queue = TaskQueue()
+    captask_queue = CapabilityTaskQueues()
+    waiting_approval_queue = AwaitingApproveQueue()
+    waiting_captask_queue = AwaitingCapTasksQueue()
+    
     logger.info("Starting Todo Receiver Application")
 
     # Ensure watch directory exists
@@ -27,7 +34,13 @@ def main():
     processor.start()
 
     # Start listeners
-    file_handler = FileHandler(watch_dir, todo_queue)
+    file_handler = FileHandler(
+        watch_path=watch_dir,
+        task_queue=todo_queue,
+        captask_queue=captask_queue,
+        waiting_approval_queue=waiting_approval_queue,
+        waiting_captask_queue=waiting_captask_queue
+    )
     rest_handler = RestFulHandler(watch_dir, host="0.0.0.0", port="8080")
 
     file_observer = file_handler.start()
