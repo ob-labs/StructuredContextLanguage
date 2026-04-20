@@ -10,7 +10,7 @@ Design Goals & Features:
 -   When the status is "idle" and the method been invoked, start a new round of get from queue immediately.
 -   When the status is "normal" and the method been invoked, do nothing.
 - If the item is not empty then check if all of the CapTasks are in a completed state.
-- If all CapTasks are completed then put the item into an TaskQueue instance.
+- If all CapTasks are completed then find the file in waitingCapTask folder and move it to the file_watch directory.
 - If not all CapTasks are completed then put the item back into the queue for retry.
 
 Project Constraints:
@@ -21,6 +21,8 @@ Project Constraints:
 """
 
 import logging
+import os
+import shutil
 import threading
 import time
 from typing import Optional
@@ -31,8 +33,6 @@ from scl.otel.otel import meter, tracer
 # Project imports
 from scl.queue.awaitingCapTasksQueue import AwaitingCapTasksQueue
 from scl.meta.task import Task
-from scl.queue.taskQueue import TaskQueue
-from scl.meta.captask import CapTask
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +41,13 @@ tasks_consumed_counter = meter.create_counter(
     "await_cap_processor.tasks_consumed",
     description="Number of Task instances consumed from AwaitingCapTasksQueue"
 )
-tasks_forwarded_counter = meter.create_counter(
-    "await_cap_processor.tasks_forwarded",
-    description="Number of Task instances forwarded to TaskQueue (all CapTasks completed)"
+files_moved_counter = meter.create_counter(
+    "await_cap_processor.files_moved",
+    description="Number of Task files moved from waitingCapTask to file_watch directory"
+)
+file_move_errors_counter = meter.create_counter(
+    "await_cap_processor.file_move_errors",
+    description="Number of errors encountered while moving Task files"
 )
 tasks_requeued_counter = meter.create_counter(
     "await_cap_processor.tasks_requeued",
@@ -59,9 +63,9 @@ class AwaitCapTasksProcessor:
     """
     A processor that continuously consumes Task instances from an AwaitingCapTasksQueue,
     checks if all associated CapTasks are in a completed state (Processed or Error),
-    and forwards them to a TaskQueue for further processing if completed.
-    If any CapTask is still in 'created' state, the Task is put back into the
-    AwaitingCapTasksQueue for a later retry.
+    and if so, moves the corresponding file from the waitingCapTask folder to the
+    file_watch directory. If any CapTask is still in 'created' state, the Task is put
+    back into the AwaitingCapTasksQueue for a later retry.
 
     It implements a backoff sleep when the source queue is empty, doubling wait time
     up to a maximum of 300 seconds. The status becomes "idle" when the wait time
@@ -70,17 +74,18 @@ class AwaitCapTasksProcessor:
 
     Example usage:
         from scl.queue.awaitingCapTasksQueue import AwaitingCapTasksQueue
-        from scl.queue.taskQueue import TaskQueue
         from scl.processor.awaitCapTasksProcessor import AwaitCapTasksProcessor
 
-        # Setup queues
+        # Setup queue and folders
         source_queue = AwaitingCapTasksQueue()
-        target_queue = TaskQueue()
+        waiting_captask_dir = "/path/to/waitingCapTask"
+        file_watch_dir = "/path/to/file_watch"
 
         # Create and start processor
         processor = AwaitCapTasksProcessor(
             source_queue=source_queue,
-            target_queue=target_queue
+            waiting_captask_dir=waiting_captask_dir,
+            file_watch_dir=file_watch_dir
         )
         processor.start()
 
@@ -97,7 +102,8 @@ class AwaitCapTasksProcessor:
     def __init__(
         self,
         source_queue: AwaitingCapTasksQueue,
-        target_queue: TaskQueue,
+        waiting_captask_dir: str,
+        file_watch_dir: str,
         name: Optional[str] = None
     ):
         """
@@ -105,12 +111,18 @@ class AwaitCapTasksProcessor:
 
         Args:
             source_queue: The AwaitingCapTasksQueue to consume from.
-            target_queue: The TaskQueue to forward completed tasks to.
+            waiting_captask_dir: Directory where Task files with pending CapTasks are stored.
+            file_watch_dir: Destination directory for completed Task files (watched by FileWatcher).
             name: Optional name for this processor instance (for logging/metrics).
         """
         self.source_queue = source_queue
-        self.target_queue = target_queue
+        self.waiting_captask_dir = waiting_captask_dir
+        self.file_watch_dir = file_watch_dir
         self.name = name or f"processor-{id(self)}"
+
+        # Ensure directories exist
+        os.makedirs(self.waiting_captask_dir, exist_ok=True)
+        os.makedirs(self.file_watch_dir, exist_ok=True)
 
         # Wait time management
         self._wait_time = 1.0           # seconds
@@ -158,7 +170,7 @@ class AwaitCapTasksProcessor:
 
     @tracer.start_as_current_span("AwaitCapTasksProcessor._consume_loop")
     def _consume_loop(self) -> None:
-        """Main loop: fetch tasks, check completion, forward or requeue."""
+        """Main loop: fetch tasks, check completion, move file or requeue."""
         current_span = trace.get_current_span()
         current_span.set_attribute("processor.name", self.name)
 
@@ -219,8 +231,9 @@ class AwaitCapTasksProcessor:
     @tracer.start_as_current_span("AwaitCapTasksProcessor._process_task")
     def _process_task(self, task: Task) -> None:
         """
-        Process a consumed Task: if all its CapTasks are completed, forward to
-        target TaskQueue; otherwise, put it back into the source AwaitingCapTasksQueue.
+        Process a consumed Task: if all its CapTasks are completed, move its file
+        from waiting_captask_dir to file_watch_dir; otherwise, put it back into the
+        source AwaitingCapTasksQueue.
         """
         current_span = trace.get_current_span()
         current_span.set_attribute("processor.name", self.name)
@@ -228,13 +241,9 @@ class AwaitCapTasksProcessor:
 
         try:
             if self._all_captasks_completed(task):
-                # All CapTasks done: forward to target queue
-                self.target_queue.add(task)
-                tasks_forwarded_counter.add(1, {"processor.name": self.name})
-                logger.info(
-                    f"Processor '{self.name}' forwarded Task {task.hash} (all CapTasks completed)"
-                )
-                current_span.set_attribute("task.forwarded", True)
+                # All CapTasks done: move file to file_watch_dir
+                self._move_completed_file(task.hash, current_span)
+                current_span.set_attribute("task.completed", True)
             else:
                 # Not all CapTasks completed: requeue for later retry
                 self.source_queue.push(task)
@@ -253,6 +262,40 @@ class AwaitCapTasksProcessor:
                 logger.warning(f"Task {task.hash} put back into source queue after processing error")
             except Exception as push_error:
                 logger.critical(f"Failed to requeue Task {task.hash} after error: {push_error}")
+
+    def _move_completed_file(self, task_hash: str, span: trace.Span) -> None:
+        """
+        Locate the file named '{task_hash}.json' in waiting_captask_dir and move it
+        to file_watch_dir.
+        """
+        filename = f"{task_hash}.json"
+        src_path = os.path.join(self.waiting_captask_dir, filename)
+        dst_path = os.path.join(self.file_watch_dir, filename)
+
+        span.set_attribute("file.src_path", src_path)
+        span.set_attribute("file.dst_path", dst_path)
+
+        if not os.path.exists(src_path):
+            error_msg = f"Expected file {src_path} not found for completed Task {task_hash}"
+            logger.error(error_msg)
+            span.set_status(trace.Status(trace.StatusCode.ERROR, error_msg))
+            file_move_errors_counter.add(1, {"processor.name": self.name, "error": "file_not_found"})
+            # We still consider the task processed, but the file is missing.
+            return
+
+        try:
+            shutil.move(src_path, dst_path)
+            files_moved_counter.add(1, {"processor.name": self.name})
+            logger.info(
+                f"Processor '{self.name}' moved completed Task file {filename} "
+                f"from {self.waiting_captask_dir} to {self.file_watch_dir}"
+            )
+            span.set_attribute("file.moved", True)
+        except Exception as e:
+            logger.error(f"Failed to move file {src_path} to {dst_path}: {e}")
+            span.record_exception(e)
+            file_move_errors_counter.add(1, {"processor.name": self.name, "error": "move_failed"})
+            raise
 
     def notify(self) -> None:
         """
@@ -275,8 +318,8 @@ class AwaitCapTasksProcessor:
 
 
 # Missing / Future Features (kept as comments for open-source tracking):
+# - Support for other file extensions (e.g., .yaml) if needed.
 # - Configurable wait parameters (initial wait, max wait, idle threshold).
-# - Metrics for forwarding latency and queue sizes.
-# - Automatic re-queue or dead-letter handling on forward failure.
-# - Support for multiple target queues (e.g., routing based on Task properties).
+# - Dead-letter handling for files that repeatedly fail to move.
+# - Batch processing support.
 # - Integration with external health checks.

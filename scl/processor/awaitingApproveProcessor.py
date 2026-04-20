@@ -11,8 +11,7 @@ Design Goals & Features:
 -   When the status is "normal" and the method been invoked, do nothing.
 - If the item is not empty then check if it's approal status is True.
 - if it not got approal, return it back to AwaitingApproveQueue.
-- If it got approal and it's task, move it to TaskQueue.
-- If it got approal and it's CapTask, move it to CapabilityTaskQueues.
+- If it(either task or CapTask) got approal invoke find the file in waitingapproval folder and move it to the file_watch directory.
 
 Project Constraints:
 - Please relay on otel for tracing, metric, logs.
@@ -22,6 +21,8 @@ Project Constraints:
 """
 
 import logging
+import os
+import shutil
 import threading
 import time
 from typing import Optional, Union
@@ -33,8 +34,6 @@ from scl.otel.otel import meter, tracer
 from scl.queue.awaitingApproveQueue import AwaitingApproveQueue
 from scl.meta.task import Task
 from scl.meta.captask import CapTask
-from scl.queue.taskQueue import TaskQueue
-from scl.queue.capabilityTaskQueues import CapabilityTaskQueues
 
 logger = logging.getLogger(__name__)
 
@@ -47,13 +46,13 @@ items_requeued_counter = meter.create_counter(
     "awaiting_approve_processor.items_requeued",
     description="Number of items returned to AwaitingApproveQueue (not yet approved)"
 )
-tasks_forwarded_counter = meter.create_counter(
-    "awaiting_approve_processor.tasks_forwarded",
-    description="Number of approved Tasks forwarded to TaskQueue"
+files_moved_counter = meter.create_counter(
+    "awaiting_approve_processor.files_moved",
+    description="Number of files moved from waitingapproval to file_watch directory"
 )
-captasks_forwarded_counter = meter.create_counter(
-    "awaiting_approve_processor.captasks_forwarded",
-    description="Number of approved CapTasks forwarded to CapabilityTaskQueues"
+file_move_errors_counter = meter.create_counter(
+    "awaiting_approve_processor.file_move_errors",
+    description="Number of errors encountered while moving files"
 )
 idle_status_gauge = meter.create_up_down_counter(
     "awaiting_approve_processor.idle_status",
@@ -64,9 +63,9 @@ idle_status_gauge = meter.create_up_down_counter(
 class AwaitingApproveProcessor:
     """
     A processor that continuously consumes items (Task or CapTask) from an
-    AwaitingApproveQueue, checks their approval status, and routes them to the
-    appropriate downstream queue if approved. If not approved, the item is
-    placed back into the AwaitingApproveQueue for later approval.
+    AwaitingApproveQueue, checks their approval status, and if approved,
+    moves the corresponding file from the waitingapproval folder to the
+    file_watch directory. Unapproved items are placed back into the queue.
 
     It implements a backoff sleep when the source queue is empty, doubling wait time
     up to a maximum of 300 seconds. The status becomes "idle" when the wait time
@@ -75,20 +74,18 @@ class AwaitingApproveProcessor:
 
     Example usage:
         from scl.queue.awaitingApproveQueue import AwaitingApproveQueue
-        from scl.queue.taskQueue import TaskQueue
-        from scl.queue.capabilityTaskQueues import CapabilityTaskQueues
         from scl.processor.awaitingApproveProcessor import AwaitingApproveProcessor
 
-        # Setup queues
+        # Setup queue and folders
         approve_queue = AwaitingApproveQueue()
-        task_queue = TaskQueue()
-        cap_queue = CapabilityTaskQueues()
+        waiting_approval_dir = "/path/to/waitingapproval"
+        file_watch_dir = "/path/to/file_watch"
 
         # Create and start processor
         processor = AwaitingApproveProcessor(
             source_queue=approve_queue,
-            task_queue=task_queue,
-            captask_queue=cap_queue
+            waiting_approval_dir=waiting_approval_dir,
+            file_watch_dir=file_watch_dir
         )
         processor.start()
 
@@ -105,8 +102,8 @@ class AwaitingApproveProcessor:
     def __init__(
         self,
         source_queue: AwaitingApproveQueue,
-        task_queue: TaskQueue,
-        captask_queue: CapabilityTaskQueues,
+        waiting_approval_dir: str,
+        file_watch_dir: str,
         name: Optional[str] = None
     ):
         """
@@ -114,14 +111,18 @@ class AwaitingApproveProcessor:
 
         Args:
             source_queue: The AwaitingApproveQueue to consume from.
-            task_queue: The TaskQueue to forward approved Tasks to.
-            captask_queue: The CapabilityTaskQueues to forward approved CapTasks to.
+            waiting_approval_dir: Directory where files of unapproved items are stored.
+            file_watch_dir: Destination directory for approved items (watched by FileWatcher).
             name: Optional name for this processor instance (for logging/metrics).
         """
         self.source_queue = source_queue
-        self.task_queue = task_queue
-        self.captask_queue = captask_queue
+        self.waiting_approval_dir = waiting_approval_dir
+        self.file_watch_dir = file_watch_dir
         self.name = name or f"processor-{id(self)}"
+
+        # Ensure directories exist
+        os.makedirs(self.waiting_approval_dir, exist_ok=True)
+        os.makedirs(self.file_watch_dir, exist_ok=True)
 
         # Wait time management
         self._wait_time = 1.0           # seconds
@@ -169,7 +170,7 @@ class AwaitingApproveProcessor:
 
     @tracer.start_as_current_span("AwaitingApproveProcessor._consume_loop")
     def _consume_loop(self) -> None:
-        """Main loop: fetch items, check approval, and route accordingly."""
+        """Main loop: fetch items, check approval, and move files if approved."""
         current_span = trace.get_current_span()
         current_span.set_attribute("processor.name", self.name)
 
@@ -188,7 +189,7 @@ class AwaitingApproveProcessor:
                 self._wakeup_event.wait(timeout=self._wait_time)
                 self._wakeup_event.clear()
             else:
-                # Process the item: check approval and route
+                # Process the item: check approval and move file
                 self._process_item(item)
                 # Reset wait time to minimum after successful consumption
                 self._wait_time = 1.0
@@ -223,11 +224,16 @@ class AwaitingApproveProcessor:
     @tracer.start_as_current_span("AwaitingApproveProcessor._process_item")
     def _process_item(self, item: Union[Task, CapTask]) -> None:
         """
-        Process a consumed item. If approval is True, forward to appropriate
-        queue; otherwise, return it to the source AwaitingApproveQueue.
+        Process a consumed item. If approval is True, move the corresponding file
+        from waiting_approval_dir to file_watch_dir; otherwise, return it to the source queue.
         """
         current_span = trace.get_current_span()
-        item_hash = getattr(item, 'hash', 'unknown')
+        item_hash = getattr(item, 'hash', None)
+        if item_hash is None:
+            logger.error("Item missing 'hash' attribute, cannot process")
+            current_span.set_status(trace.Status(trace.StatusCode.ERROR, "Missing hash"))
+            return
+
         item_type = type(item).__name__
         current_span.set_attribute("processor.name", self.name)
         current_span.set_attribute("item.type", item_type)
@@ -244,25 +250,10 @@ class AwaitingApproveProcessor:
                 )
                 current_span.set_attribute("item.routed_to", "source_queue")
             else:
-                # Approved: route to appropriate downstream queue
-                if isinstance(item, Task):
-                    self.task_queue.add(item)
-                    tasks_forwarded_counter.add(1, {"processor.name": self.name})
-                    logger.info(
-                        f"Processor '{self.name}' forwarded approved Task {item.hash} to TaskQueue"
-                    )
-                    current_span.set_attribute("item.routed_to", "task_queue")
-                elif isinstance(item, CapTask):
-                    self.captask_queue.add(item)
-                    captasks_forwarded_counter.add(1, {"processor.name": self.name})
-                    logger.info(
-                        f"Processor '{self.name}' forwarded approved CapTask {item.hash} to CapabilityTaskQueues"
-                    )
-                    current_span.set_attribute("item.routed_to", "captask_queue")
-                else:
-                    # Unknown type, should not happen
-                    logger.error(f"Unknown item type: {item_type}, cannot route")
-                    current_span.set_status(trace.Status(trace.StatusCode.ERROR, "Unknown item type"))
+                # Approved: move file from waiting_approval_dir to file_watch_dir
+                self._move_approved_file(item_hash, item_type, current_span)
+                current_span.set_attribute("item.routed_to", "file_watch_dir")
+
         except Exception as e:
             logger.error(f"Failed to process {item_type} {item_hash}: {e}", exc_info=True)
             current_span.record_exception(e)
@@ -273,6 +264,40 @@ class AwaitingApproveProcessor:
                 logger.warning(f"{item_type} {item_hash} put back into source queue after processing error")
             except Exception as push_error:
                 logger.critical(f"Failed to requeue {item_type} {item_hash} after error: {push_error}")
+
+    def _move_approved_file(self, item_hash: str, item_type: str, span: trace.Span) -> None:
+        """
+        Locate the file named '{item_hash}.json' in waiting_approval_dir and move it to file_watch_dir.
+        """
+        filename = f"{item_hash}.json"
+        src_path = os.path.join(self.waiting_approval_dir, filename)
+        dst_path = os.path.join(self.file_watch_dir, filename)
+
+        span.set_attribute("file.src_path", src_path)
+        span.set_attribute("file.dst_path", dst_path)
+
+        if not os.path.exists(src_path):
+            error_msg = f"Expected file {src_path} not found for approved {item_type} {item_hash}"
+            logger.error(error_msg)
+            span.set_status(trace.Status(trace.StatusCode.ERROR, error_msg))
+            file_move_errors_counter.add(1, {"processor.name": self.name, "error": "file_not_found"})
+            # We still consider the item processed, but the file is missing.
+            # Could be a race condition or manual cleanup; log and continue.
+            return
+
+        try:
+            shutil.move(src_path, dst_path)
+            files_moved_counter.add(1, {"processor.name": self.name, "item_type": item_type})
+            logger.info(
+                f"Processor '{self.name}' moved approved {item_type} file {filename} "
+                f"from {self.waiting_approval_dir} to {self.file_watch_dir}"
+            )
+            span.set_attribute("file.moved", True)
+        except Exception as e:
+            logger.error(f"Failed to move file {src_path} to {dst_path}: {e}")
+            span.record_exception(e)
+            file_move_errors_counter.add(1, {"processor.name": self.name, "error": "move_failed"})
+            raise
 
     def notify(self) -> None:
         """
@@ -295,8 +320,8 @@ class AwaitingApproveProcessor:
 
 
 # Missing / Future Features (kept as comments for open-source tracking):
+# - Support for other file extensions (e.g., .yaml) if needed.
 # - Configurable wait parameters (initial wait, max wait, idle threshold).
-# - Metrics for routing latency and downstream queue sizes.
-# - Dead-letter queue for items that repeatedly fail processing.
-# - Support for batch processing.
+# - Dead-letter handling for files that repeatedly fail to move.
+# - Batch processing support.
 # - Integration with external health checks.

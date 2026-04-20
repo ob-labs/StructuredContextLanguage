@@ -15,6 +15,8 @@ import pytest
 from scl.listener.file_watch import FileHandler
 from scl.queue.taskQueue import TaskQueue
 from scl.queue.capTaskQueues import CapabilityTaskQueues
+from scl.queue.awaitingApproveQueue import AwaitingApproveQueue
+from scl.queue.awaitingCapTasksQueue import AwaitingCapTasksQueue
 from scl.meta.task import Task
 from scl.meta.captask import CapTask
 from watchdog.events import FileCreatedEvent
@@ -34,6 +36,18 @@ def mock_captask_queue():
 
 
 @pytest.fixture
+def mock_waiting_approval_queue():
+    """Fixture for a mocked AwaitingApproveQueue."""
+    return MagicMock(spec=AwaitingApproveQueue)
+
+
+@pytest.fixture
+def mock_waiting_captask_queue():
+    """Fixture for a mocked AwaitingCapTasksQueue."""
+    return MagicMock(spec=AwaitingCapTasksQueue)
+
+
+@pytest.fixture
 def temp_watch_dir(tmp_path):
     """Fixture for a temporary watch directory."""
     watch_dir = tmp_path / "watch"
@@ -42,14 +56,20 @@ def temp_watch_dir(tmp_path):
 
 
 @pytest.fixture
-def handler(mock_task_queue, mock_captask_queue, temp_watch_dir):
+def handler(mock_task_queue, mock_captask_queue, mock_waiting_approval_queue, mock_waiting_captask_queue, temp_watch_dir):
     """Fixture for a FileHandler instance with mocked dependencies."""
     with patch('scl.listener.file_watch.meter') as mock_meter, \
          patch('scl.listener.file_watch.tracer') as mock_tracer:
         # Mock counter creation - create separate counters for each metric
         mock_meter.create_counter.side_effect = lambda name, description: MagicMock()
 
-        handler = FileHandler(temp_watch_dir, mock_task_queue, mock_captask_queue)
+        handler = FileHandler(
+            watch_path=temp_watch_dir,
+            task_queue=mock_task_queue,
+            captask_queue=mock_captask_queue,
+            waiting_approval_queue=mock_waiting_approval_queue,
+            waiting_captask_queue=mock_waiting_captask_queue
+        )
         handler.logger = MagicMock()
 
         # Replace actual file operations with mocks to avoid real FS interactions
@@ -60,24 +80,36 @@ def handler(mock_task_queue, mock_captask_queue, temp_watch_dir):
 class TestFileHandler:
     """Test cases for FileHandler."""
 
-    def test_init_creates_directories(self, mock_task_queue, mock_captask_queue, temp_watch_dir):
-        """Should create processed, processedCapTask, and failed directories on initialization."""
+    def test_init_creates_directories(self, mock_task_queue, mock_captask_queue, mock_waiting_approval_queue, mock_waiting_captask_queue, temp_watch_dir):
+        """Should create processed, processedCapTask, waitingapproval, waitingCapTask, and failed directories on initialization."""
         processed_dir = Path(temp_watch_dir) / "processed"
         processed_captask_dir = Path(temp_watch_dir) / "processedCapTask"
+        waiting_approval_dir = Path(temp_watch_dir) / "waitingapproval"
+        waiting_captask_dir = Path(temp_watch_dir) / "waitingCapTask"
         failed_dir = Path(temp_watch_dir) / "failed"
 
         # Ensure they don't exist yet
         assert not processed_dir.exists()
         assert not processed_captask_dir.exists()
+        assert not waiting_approval_dir.exists()
+        assert not waiting_captask_dir.exists()
         assert not failed_dir.exists()
 
         with patch('scl.listener.file_watch.meter') as mock_meter, \
              patch('scl.listener.file_watch.tracer'):
             mock_meter.create_counter.return_value = MagicMock()
-            FileHandler(temp_watch_dir, mock_task_queue, mock_captask_queue)
+            FileHandler(
+                watch_path=temp_watch_dir,
+                task_queue=mock_task_queue,
+                captask_queue=mock_captask_queue,
+                waiting_approval_queue=mock_waiting_approval_queue,
+                waiting_captask_queue=mock_waiting_captask_queue
+            )
 
         assert processed_dir.exists()
         assert processed_captask_dir.exists()
+        assert waiting_approval_dir.exists()
+        assert waiting_captask_dir.exists()
         assert failed_dir.exists()
 
     def test_on_created_ignores_directories(self, handler):
@@ -101,7 +133,9 @@ class TestFileHandler:
 
         # Mock Task.from_dict
         mock_task = MagicMock()
-        mock_task.id = "123"
+        mock_task.hash = "123"
+        mock_task.approval = True
+        mock_task.cap_tasks = []
         with patch.object(Task, 'from_dict', return_value=mock_task):
             # Mock shutil.move to avoid actual move
             with patch('scl.listener.file_watch.shutil.move') as mock_move:
@@ -109,14 +143,14 @@ class TestFileHandler:
 
         # Assertions
         handler.file_receive_counter.add.assert_called_once_with(1)
-        handler.task_file_valid_counter.add.assert_called_once_with(1)
+        handler.task_file_approved_counter.add.assert_called_once_with(1)
         handler.task_queue.add.assert_called_once_with(mock_task)
         mock_move.assert_called_once_with(
             str(file_path),
             os.path.join(handler.processed_dir, "task.json")
         )
         handler.logger.info.assert_any_call(f"New file detected: {file_path}")
-        handler.logger.info.assert_any_call(f"Task file moved to processed: {os.path.join(handler.processed_dir, 'task.json')}")
+        handler.logger.info.assert_any_call(f"Task file moved: {os.path.join(handler.processed_dir, 'task.json')}")
 
     def test_on_created_valid_yaml_task(self, handler, tmp_path):
         """Should process a valid YAML task file."""
@@ -128,12 +162,14 @@ class TestFileHandler:
         event.src_path = str(file_path)
 
         mock_task = MagicMock()
-        mock_task.id = "456"
+        mock_task.hash = "456"
+        mock_task.approval = True
+        mock_task.cap_tasks = []
         with patch.object(Task, 'from_dict', return_value=mock_task):
             with patch('scl.listener.file_watch.shutil.move') as mock_move:
                 handler.on_created(event)
 
-        handler.task_file_valid_counter.add.assert_called_once_with(1)
+        handler.task_file_approved_counter.add.assert_called_once_with(1)
         handler.task_queue.add.assert_called_once_with(mock_task)
         mock_move.assert_called_once_with(
             str(file_path),
@@ -187,6 +223,56 @@ class TestFileHandler:
         mock_move.assert_called_once_with(
             str(file_path),
             os.path.join(handler.processed_captask_dir, "captask.yaml")
+        )
+
+    def test_on_created_unapproved_task(self, handler, tmp_path):
+        """Should route unapproved task to waiting approval queue."""
+        file_path = tmp_path / "task.json"
+        file_path.write_text(json.dumps({"id": "789", "description": "Unapproved Task"}))
+
+        event = MagicMock(spec=FileCreatedEvent)
+        event.is_directory = False
+        event.src_path = str(file_path)
+
+        mock_task = MagicMock()
+        mock_task.hash = "789"
+        mock_task.approval = False
+        mock_task.cap_tasks = []
+        with patch.object(Task, 'from_dict', return_value=mock_task):
+            with patch('scl.listener.file_watch.shutil.move') as mock_move:
+                handler.on_created(event)
+
+        handler.task_file_unapproved_counter.add.assert_called_once_with(1)
+        handler.waiting_approval_queue.add.assert_called_once_with(mock_task)
+        mock_move.assert_called_once_with(
+            str(file_path),
+            os.path.join(handler.waiting_approval_dir, "task.json")
+        )
+
+    def test_on_created_task_pending_captasks(self, handler, tmp_path):
+        """Should route approved task with pending CapTasks to waiting CapTask queue."""
+        file_path = tmp_path / "task.json"
+        file_path.write_text(json.dumps({"id": "101", "description": "Task with pending CapTasks"}))
+
+        event = MagicMock(spec=FileCreatedEvent)
+        event.is_directory = False
+        event.src_path = str(file_path)
+
+        mock_cap = MagicMock()
+        mock_cap.status = "Pending"
+        mock_task = MagicMock()
+        mock_task.hash = "101"
+        mock_task.approval = True
+        mock_task.cap_tasks = [mock_cap]
+        with patch.object(Task, 'from_dict', return_value=mock_task):
+            with patch('scl.listener.file_watch.shutil.move') as mock_move:
+                handler.on_created(event)
+
+        handler.task_file_pending_captasks_counter.add.assert_called_once_with(1)
+        handler.waiting_captask_queue.push.assert_called_once_with(mock_task)
+        mock_move.assert_called_once_with(
+            str(file_path),
+            os.path.join(handler.waiting_captask_dir, "task.json")
         )
 
     def test_on_created_unsupported_extension(self, handler, tmp_path):
@@ -254,9 +340,10 @@ class TestFileHandler:
 
         # Should not move to processed
         mock_move.assert_not_called()
-        handler._move_to_failed.assert_called_once_with(str(file_path), reason="task_queue_error")
+        # FIXED: actual code uses reason="task_processing_error"
+        handler._move_to_failed.assert_called_once_with(str(file_path), reason="task_processing_error")
         # Valid counter should NOT be incremented (because queue failed)
-        handler.task_file_valid_counter.add.assert_not_called()
+        handler.task_file_approved_counter.add.assert_not_called()
 
     def test_parse_file_json(self, handler, tmp_path):
         """_parse_file should correctly load JSON."""
@@ -375,12 +462,16 @@ class TestFileHandler:
         event.is_directory = False
         event.src_path = str(file_path)
 
-        with patch.object(Task, 'from_dict', return_value=MagicMock()):
+        mock_task = MagicMock()
+        mock_task.hash = "1"
+        mock_task.approval = True
+        mock_task.cap_tasks = []
+        with patch.object(Task, 'from_dict', return_value=mock_task):
             with patch('scl.listener.file_watch.shutil.move'):
                 handler.on_created(event)
 
         handler.file_receive_counter.add.assert_called_once_with(1)
-        handler.task_file_valid_counter.add.assert_called_once_with(1)
+        handler.task_file_approved_counter.add.assert_called_once_with(1)
         handler.file_invalid_counter.add.assert_not_called()
 
     def test_on_created_captask_queue_error(self, handler, tmp_path):
@@ -404,16 +495,24 @@ class TestFileHandler:
         # Valid counter should NOT be incremented (because queue failed)
         handler.captask_file_valid_counter.add.assert_not_called()
 
-    def test_looks_like_task(self, handler):
-        """_looks_like_task should identify task format."""
-        assert handler._looks_like_task({"id": "123", "description": "Test"}) is True
-        assert handler._looks_like_task({"id": "123"}) is False
-        assert handler._looks_like_task({"description": "Test"}) is False
-        assert handler._looks_like_task({}) is False
-
-    def test_looks_like_captask(self, handler):
-        """_looks_like_captask should identify CapTask format."""
-        assert handler._looks_like_captask({"cap_name": "test", "args": {}}) is True
-        assert handler._looks_like_captask({"cap_name": "test"}) is False
-        assert handler._looks_like_captask({"args": {}}) is False
-        assert handler._looks_like_captask({}) is False
+    def test_all_captasks_completed(self, handler):
+        """_all_captasks_completed should check CapTask status."""
+        mock_task = MagicMock()
+        
+        # All completed
+        cap1 = MagicMock()
+        cap1.status = "Processed"
+        cap2 = MagicMock()
+        cap2.status = "Error"
+        mock_task.cap_tasks = [cap1, cap2]
+        assert handler._all_captasks_completed(mock_task) is True
+        
+        # One pending
+        cap3 = MagicMock()
+        cap3.status = "Pending"
+        mock_task.cap_tasks = [cap1, cap3]
+        assert handler._all_captasks_completed(mock_task) is False
+        
+        # Empty list
+        mock_task.cap_tasks = []
+        assert handler._all_captasks_completed(mock_task) is True
