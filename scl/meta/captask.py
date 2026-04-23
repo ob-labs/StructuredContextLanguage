@@ -11,6 +11,7 @@ Design Goals & Features:
    - approval: a flag if get approval for running, default is True.
    - status: current status of the CapTask in ["created", "Processed", "Error"]
 2. Support JSON serialization/deserialization for persistence or message passing.
+3. When this class been initialized, it will write down a file to scl.config.todo_watch_dir folder, the file name is hash value.
 
 Project Constraints Applied:
 ----------------------------
@@ -23,6 +24,7 @@ Installation:
 """
 import json
 import logging
+import os
 import uuid
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, List, Optional
@@ -30,6 +32,14 @@ from typing import Any, Dict, List, Optional
 # OpenTelemetry imports
 from opentelemetry import trace
 from scl.otel.otel import tracer, meter
+
+# Try to import todo_watch_dir from config; fallback if not available
+try:
+    from scl.config import todo_watch_dir
+except ImportError:
+    # Placeholder default for open-source compatibility
+    todo_watch_dir = os.path.join(os.getcwd(), "todo_watch")
+    logging.warning(f"scl.config not found, using default todo_watch_dir: {todo_watch_dir}")
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -50,6 +60,10 @@ cap_task_deserialized_counter = meter.create_counter(
 cap_task_status_changed_counter = meter.create_counter(
     "cap_task.status_changed",
     description="Number of times a CapTask status changed"
+)
+cap_task_file_written_counter = meter.create_counter(
+    "cap_task.file_written",
+    description="Number of CapTask files written to todo_watch_dir"
 )
 
 
@@ -82,7 +96,7 @@ class CapTask:
     VALID_STATUSES = {"created", "Processed", "Error"}
 
     def __post_init__(self):
-        """Auto-generate unique hash if not supplied, set default task_hash, and validate status."""
+        """Auto-generate unique hash if not supplied, set default task_hash, validate status, and write file."""
         with tracer.start_as_current_span("CapTask.__post_init__") as span:
             if self.hash is None:
                 # Use object.__setattr__ because dataclass fields are frozen in spirit
@@ -119,6 +133,35 @@ class CapTask:
                 f"approval={self.approval}, status={self.status}"
             )
             logger.info(f"CapTask created for capability '{self.cap_name}' with status '{self.status}'")
+
+            # Write file to todo_watch_dir
+            self._write_file_to_watch_dir(span)
+
+    def _write_file_to_watch_dir(self, parent_span: trace.Span):
+        """
+        Write the CapTask as JSON file to the todo_watch_dir.
+        File name is <hash>.json.
+        """
+        try:
+            # Ensure directory exists
+            os.makedirs(todo_watch_dir, exist_ok=True)
+
+            file_path = os.path.join(todo_watch_dir, f"{self.hash}.json")
+            json_content = self.to_json(indent=2)
+
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(json_content)
+
+            cap_task_file_written_counter.add(1, {"cap_name": self.cap_name})
+            parent_span.set_attribute("cap_task.file_written_path", file_path)
+            logger.debug(f"CapTask written to file: {file_path}")
+            logger.info(f"CapTask file saved: {file_path}")
+
+        except Exception as e:
+            logger.error(f"Failed to write CapTask file for {self.hash}: {e}")
+            parent_span.record_exception(e)
+            # Do not re-raise; file writing is non-critical for object creation
+            # but we log the error and increment a metric could be added if needed.
 
     @tracer.start_as_current_span("CapTask.set_status")
     def set_status(self, new_status: str) -> None:

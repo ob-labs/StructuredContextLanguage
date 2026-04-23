@@ -100,7 +100,8 @@ def function_call_playground(
             logging.info(f"func1_name: {func1_name}, func1_args: {func1_args}")
             args_dict = json.loads(func1_args)
             cap = cap_registry.get_cap_by_name(func1_name)
-            func1_out = cap_registry.call_cap_safe(cap,args_dict)
+            # todo
+            # func1_out = cap_registry.call_cap_safe(cap,args_dict)
             ## metric execution time
             cap_registry.record(msg, cap)
 
