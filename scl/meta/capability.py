@@ -7,6 +7,7 @@ Design Goals & Features:
 2. Encapsulate common attributes: name, description, type, original_body, llm_description, function_impl.
 3. Support progressive loading via embedding vector of the description for RAG.
 4. Cached embedding computation to avoid repeated embedding calls.
+5. It has a method to execute the cap with given arguments[dict] like execute(self, args_dict: Dict[str, Any]), but leave it to subclass for implementations.
 
 Project Constraints Applied:
 ----------------------------
@@ -16,7 +17,7 @@ Project Constraints Applied:
 """
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 
 # OpenTelemetry imports
 from opentelemetry import trace
@@ -50,6 +51,7 @@ class Capability(ABC):
         _embedding_description (Optional[Any]): Cached embedding vector of the description.
     """
 
+    @tracer.start_as_current_span("Capability.__init__")
     def __init__(self,
                  name: str,
                  type: str,
@@ -57,6 +59,14 @@ class Capability(ABC):
                  original_body: Optional[str] = None,
                  llm_description: Optional[str] = None,
                  function_impl: Optional[str] = None):
+        current_span = trace.get_current_span()
+        current_span.set_attribute("capability.name", name)
+        current_span.set_attribute("capability.type", type)
+        current_span.set_attribute("capability.has_description", description is not None)
+        current_span.set_attribute("capability.has_original_body", original_body is not None)
+        current_span.set_attribute("capability.has_llm_description", llm_description is not None)
+        current_span.set_attribute("capability.has_function_impl", function_impl is not None)
+
         self._name = name
         self._description = description
         self._embedding_description = None
@@ -74,6 +84,10 @@ class Capability(ABC):
                 "has_function_impl": self._function_impl is not None
             }
         )
+        logger.debug(
+            f"Capability created: name='{self._name}', type='{self._type}', "
+            f"description_preview='{self._description[:50] if self._description else None}...'"
+        )
 
     @property
     def name(self) -> str:
@@ -81,12 +95,12 @@ class Capability(ABC):
         return self._name
 
     @property
-    def description(self) -> str:
+    def description(self) -> Optional[str]:
         """Function description for progressive loading."""
         return self._description
 
     @property
-    def original_body(self) -> str:
+    def original_body(self) -> Optional[str]:
         """Original description body."""
         return self._original_body
 
@@ -130,6 +144,31 @@ class Capability(ABC):
         """Function implementation for sandbox execution."""
         return self._function_impl
 
+    @abstractmethod
+    @tracer.start_as_current_span("Capability.execute")
+    def execute(self, args_dict: Dict[str, Any]) -> Any:
+        """
+        Execute the capability with the given arguments.
+
+        Subclasses must implement this method with concrete execution logic.
+
+        Args:
+            args_dict: Dictionary of argument names to values for the invocation.
+
+        Returns:
+            The result of the capability execution.
+
+        Raises:
+            NotImplementedError: If subclass does not implement this method.
+        """
+        current_span = trace.get_current_span()
+        current_span.set_attribute("capability.name", self._name)
+        current_span.set_attribute("capability.type", self._type)
+        current_span.set_attribute("args.count", len(args_dict))
+        logger.debug(f"Executing capability '{self._name}' with args: {list(args_dict.keys())}")
+        # Implementation is left to subclasses; this method will not be called directly.
+        raise NotImplementedError("Subclasses must implement execute method")
+
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(name='{self.name}'...)"
 
@@ -139,4 +178,3 @@ class Capability(ABC):
         return (self._name == other._name and
                 self._description == other._description and
                 self._original_body == other._original_body)
-
