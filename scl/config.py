@@ -7,14 +7,24 @@ from dataclasses import dataclass
 class Config:
     """使用dataclass的极简配置类"""
     
-    # 直接从环境变量获取值, something ground truth won't change
+    # otel related settings
     otlp_endpoint: str = os.getenv("OTLP_ENDPOINT", "http://localhost:4318")
     otlp_metrics_endpoint: str = os.getenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "http://localhost:4318")
+    log_level: str = os.getenv("LOG_LEVEL", "INFO")
+    service_name: str = os.getenv("SERVICE_NAME", "SCL")
+
+    # 文件监听目录
+    todo_watch_dir = os.getenv("TODO_WATCH_DIR", "./todo_folder")
+    # REST API 监听配置
+    api_host = os.getenv("API_HOST", "0.0.0.0")
+    api_port = os.getenv("API_PORT", "8080")
+
+    # embedding related settings
     embedding_model: str = os.getenv("EMBEDDING_MODEL", "BAAI/bge-large-zh-v1.5")
     embedding_model_dims: int = int(os.getenv("EMBEDDING_MODEL_DIMS", "1024"))
     embedding_api_key: Optional[str] = os.getenv("EMBEDDING_API_KEY")
     embedding_base_url: str = os.getenv("EMBEDDING_BASE_URL", "https://api.siliconflow.cn/v1")
-
+    
     ## todo, vars here may changes
     limit: int = int(os.getenv("LIMIT", "5"))
     min_similarity: float = float(os.getenv("MIN_SIMILARITY", "0.5"))
