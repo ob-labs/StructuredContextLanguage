@@ -1,7 +1,7 @@
 """
 RESTful API for receiving scl.meta.task items via POST requests
 1. It receives scl.meta.task format as JSON body.
-2. It converts the task into a Task instance and writes a file to the file_watch directory.
+2. It converts the task into a Task instance.
 3. It responds with the scl.meta.task's hash value to the client if successful.
 4. It allows clients to check the status of a task or captask by its hash value.
 5. It lists all tasks or captasks which waiting for approval.

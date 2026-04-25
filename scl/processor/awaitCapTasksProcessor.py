@@ -2,13 +2,9 @@
 awaitCapTasksProcessor module
 
 Design Goals & Features:
+- Inherits from BaseQueueProcessor for common loop/backoff/status/notify.
 - It will consume an AwaitingCapTasksQueue as queue instance.
 - It use a while true to consume Task instance from the queue.
-- If the item is empty then double the wait time for the queue and the max sleep time is 300s.
-- It allows status check, if the wait time equal or over 16s then the status been set to "idle", otherwise set to "normal".
-- It has an event method for notification, allows other components invoke.
--   When the status is "idle" and the method been invoked, start a new round of get from queue immediately.
--   When the status is "normal" and the method been invoked, do nothing.
 - If the item is not empty then check if all of the CapTasks are in a completed state.
 - If all CapTasks are completed then find the file in waitingCapTask folder and move it to the file_watch directory.
 - If not all CapTasks are completed then put the item back into the queue for retry.
@@ -23,8 +19,6 @@ Project Constraints:
 import logging
 import os
 import shutil
-import threading
-import time
 from typing import Optional
 
 from opentelemetry import trace
@@ -33,33 +27,12 @@ from scl.otel.otel import meter, tracer
 # Project imports
 from scl.queue.awaitingCapTasksQueue import AwaitingCapTasksQueue
 from scl.meta.task import Task
+from scl.processor.base_queue_processor import BaseQueueProcessor
 
 logger = logging.getLogger(__name__)
 
-# Metrics
-tasks_consumed_counter = meter.create_counter(
-    "await_cap_processor.tasks_consumed",
-    description="Number of Task instances consumed from AwaitingCapTasksQueue"
-)
-files_moved_counter = meter.create_counter(
-    "await_cap_processor.files_moved",
-    description="Number of Task files moved from waitingCapTask to file_watch directory"
-)
-file_move_errors_counter = meter.create_counter(
-    "await_cap_processor.file_move_errors",
-    description="Number of errors encountered while moving Task files"
-)
-tasks_requeued_counter = meter.create_counter(
-    "await_cap_processor.tasks_requeued",
-    description="Number of Task instances put back into AwaitingCapTasksQueue for retry"
-)
-idle_status_gauge = meter.create_up_down_counter(
-    "await_cap_processor.idle_status",
-    description="Indicates whether processor is idle (1) or normal (0)"
-)
 
-
-class AwaitCapTasksProcessor:
+class AwaitCapTasksProcessor(BaseQueueProcessor):
     """
     A processor that continuously consumes Task instances from an AwaitingCapTasksQueue,
     checks if all associated CapTasks are in a completed state (Processed or Error),
@@ -115,92 +88,38 @@ class AwaitCapTasksProcessor:
             file_watch_dir: Destination directory for completed Task files (watched by FileWatcher).
             name: Optional name for this processor instance (for logging/metrics).
         """
+        super().__init__(name=name or "await-captask-processor")
         self.source_queue = source_queue
         self.waiting_captask_dir = waiting_captask_dir
         self.file_watch_dir = file_watch_dir
-        self.name = name or f"processor-{id(self)}"
 
         # Ensure directories exist
         os.makedirs(self.waiting_captask_dir, exist_ok=True)
         os.makedirs(self.file_watch_dir, exist_ok=True)
 
-        # Wait time management
-        self._wait_time = 1.0           # seconds
-        self._max_wait = 300.0          # 5 minutes
-        self._idle_threshold = 16.0     # status becomes idle after this many seconds
+        # Additional metrics beyond the base class
+        self.files_moved_counter = meter.create_counter(
+            f"{self.name}.files_moved",
+            description="Number of Task files moved from waitingCapTask to file_watch directory"
+        )
+        self.file_move_errors_counter = meter.create_counter(
+            f"{self.name}.file_move_errors",
+            description="Number of errors encountered while moving Task files"
+        )
+        self.tasks_requeued_counter = meter.create_counter(
+            f"{self.name}.tasks_requeued",
+            description="Number of Task instances put back into the queue for retry"
+        )
 
-        # Control flags
-        self._running = False
-        self._thread: Optional[threading.Thread] = None
-        self._wakeup_event = threading.Event()  # used to interrupt sleep
+        logger.info("%s initialized with queue %r", self.name, source_queue)
 
-        logger.info(f"AwaitCapTasksProcessor '{self.name}' initialized")
-
-    @property
-    def status(self) -> str:
-        """Return 'idle' if wait time >= 16s, else 'normal'."""
-        return "idle" if self._wait_time >= self._idle_threshold else "normal"
-
-    @tracer.start_as_current_span("AwaitCapTasksProcessor.start")
-    def start(self) -> None:
+    # ------------------------------------------------------------------ Abstract method overrides
+    @tracer.start_as_current_span("AwaitCapTasksProcessor._get_item")
+    def _get_item(self) -> Optional[Task]:
         """
-        Start the background consumption loop.
+        Fetch one Task from the AwaitingCapTasksQueue.
+        Must return None if no item is available (empty queue).
         """
-        if self._running:
-            logger.info(f"Processor '{self.name}' is already running.")
-            return
-
-        self._running = True
-        self._thread = threading.Thread(target=self._consume_loop, daemon=True)
-        self._thread.start()
-        logger.info(f"Processor '{self.name}' started (initial wait: {self._wait_time}s)")
-
-    def stop(self) -> None:
-        """
-        Stop the consumption loop gracefully.
-        """
-        if not self._running:
-            return
-
-        self._running = False
-        self._wakeup_event.set()  # interrupt any ongoing sleep
-        if self._thread:
-            self._thread.join(timeout=2.0)
-        logger.info(f"Processor '{self.name}' stopped")
-
-    @tracer.start_as_current_span("AwaitCapTasksProcessor._consume_loop")
-    def _consume_loop(self) -> None:
-        """Main loop: fetch tasks, check completion, move file or requeue."""
-        current_span = trace.get_current_span()
-        current_span.set_attribute("processor.name", self.name)
-
-        while self._running:
-            # Try to get a task from the source queue
-            task = self._get_task()
-
-            if task is None:
-                # Queue empty: double wait time, capped at max
-                self._wait_time = min(self._wait_time * 2, self._max_wait)
-                logger.debug(
-                    f"Processor '{self.name}': queue empty, wait time increased to {self._wait_time}s"
-                )
-                self._update_idle_metric()
-                # Sleep with interrupt capability
-                self._wakeup_event.wait(timeout=self._wait_time)
-                self._wakeup_event.clear()
-            else:
-                # Process the task: check CapTasks completion and route accordingly
-                self._process_task(task)
-                # Reset wait time to minimum after successful consumption
-                self._wait_time = 1.0
-                self._update_idle_metric()
-                # Immediately proceed to next iteration
-
-        logger.debug(f"Consume loop for '{self.name}' exited")
-
-    @tracer.start_as_current_span("AwaitCapTasksProcessor._get_task")
-    def _get_task(self) -> Optional[Task]:
-        """Fetch one Task from the source AwaitingCapTasksQueue."""
         current_span = trace.get_current_span()
         current_span.set_attribute("processor.name", self.name)
         try:
@@ -208,16 +127,50 @@ class AwaitCapTasksProcessor:
             if task:
                 current_span.set_attribute("task.available", True)
                 current_span.set_attribute("task.hash", task.hash)
-                tasks_consumed_counter.add(1, {"processor.name": self.name})
-                logger.debug(f"Processor '{self.name}' consumed Task {task.hash}")
+                logger.debug("%s: consumed Task %s from source queue", self.name, task.hash)
             else:
                 current_span.set_attribute("task.available", False)
             return task
         except Exception as e:
-            logger.error(f"Error consuming task from source queue: {e}")
+            logger.error("%s: error consuming task from source queue: %s", self.name, e)
             current_span.record_exception(e)
             return None
 
+    @tracer.start_as_current_span("AwaitCapTasksProcessor._process_item")
+    def _process_item(self, item: Task) -> None:
+        """
+        Process a Task: if all CapTasks are completed move its file, else requeue.
+        The base class loop increments the generic items_consumed counter.
+        """
+        current_span = trace.get_current_span()
+        current_span.set_attribute("processor.name", self.name)
+        current_span.set_attribute("task.hash", item.hash)
+
+        try:
+            if self._all_captasks_completed(item):
+                # All CapTasks done: move file to file_watch_dir
+                self._move_completed_file(item.hash, current_span)
+                current_span.set_attribute("task.completed", True)
+            else:
+                # Not all CapTasks completed: requeue for later retry
+                self.source_queue.push(item)
+                self.tasks_requeued_counter.add(1, {"processor.name": self.name})
+                logger.debug(
+                    "%s: requeued Task %s (CapTasks not all completed)", self.name, item.hash
+                )
+                current_span.set_attribute("task.requeued", True)
+        except Exception as e:
+            logger.error("%s: failed to process Task %s: %s", self.name, item.hash, e, exc_info=True)
+            current_span.record_exception(e)
+            current_span.set_status(trace.Status(trace.StatusCode.ERROR, "Task processing failed"))
+            # Attempt to put back into source queue to avoid losing the task
+            try:
+                self.source_queue.push(item)
+                logger.warning("%s: Task %s put back into source queue after processing error", self.name, item.hash)
+            except Exception as push_error:
+                logger.critical("%s: failed to requeue Task %s after error: %s", self.name, item.hash, push_error)
+
+    # ------------------------------------------------------------------ Helper methods
     def _all_captasks_completed(self, task: Task) -> bool:
         """
         Check whether all CapTasks of the given Task are in a completed state.
@@ -227,41 +180,6 @@ class AwaitCapTasksProcessor:
             if cap.status not in ("Processed", "Error"):
                 return False
         return True
-
-    @tracer.start_as_current_span("AwaitCapTasksProcessor._process_task")
-    def _process_task(self, task: Task) -> None:
-        """
-        Process a consumed Task: if all its CapTasks are completed, move its file
-        from waiting_captask_dir to file_watch_dir; otherwise, put it back into the
-        source AwaitingCapTasksQueue.
-        """
-        current_span = trace.get_current_span()
-        current_span.set_attribute("processor.name", self.name)
-        current_span.set_attribute("task.hash", task.hash)
-
-        try:
-            if self._all_captasks_completed(task):
-                # All CapTasks done: move file to file_watch_dir
-                self._move_completed_file(task.hash, current_span)
-                current_span.set_attribute("task.completed", True)
-            else:
-                # Not all CapTasks completed: requeue for later retry
-                self.source_queue.push(task)
-                tasks_requeued_counter.add(1, {"processor.name": self.name})
-                logger.debug(
-                    f"Processor '{self.name}' requeued Task {task.hash} (CapTasks not all completed)"
-                )
-                current_span.set_attribute("task.requeued", True)
-        except Exception as e:
-            logger.error(f"Failed to process Task {task.hash}: {e}", exc_info=True)
-            current_span.record_exception(e)
-            current_span.set_status(trace.Status(trace.StatusCode.ERROR, "Task processing failed"))
-            # Attempt to put back into source queue to avoid losing the task
-            try:
-                self.source_queue.push(task)
-                logger.warning(f"Task {task.hash} put back into source queue after processing error")
-            except Exception as push_error:
-                logger.critical(f"Failed to requeue Task {task.hash} after error: {push_error}")
 
     def _move_completed_file(self, task_hash: str, span: trace.Span) -> None:
         """
@@ -277,49 +195,30 @@ class AwaitCapTasksProcessor:
 
         if not os.path.exists(src_path):
             error_msg = f"Expected file {src_path} not found for completed Task {task_hash}"
-            logger.error(error_msg)
+            logger.error("%s: %s", self.name, error_msg)
             span.set_status(trace.Status(trace.StatusCode.ERROR, error_msg))
-            file_move_errors_counter.add(1, {"processor.name": self.name, "error": "file_not_found"})
-            # We still consider the task processed, but the file is missing.
+            self.file_move_errors_counter.add(1, {"processor.name": self.name, "error": "file_not_found"})
+            # Task considered processed but file is missing
             return
 
         try:
             shutil.move(src_path, dst_path)
-            files_moved_counter.add(1, {"processor.name": self.name})
+            self.files_moved_counter.add(1, {"processor.name": self.name})
             logger.info(
-                f"Processor '{self.name}' moved completed Task file {filename} "
-                f"from {self.waiting_captask_dir} to {self.file_watch_dir}"
+                "%s: moved completed Task file %s from %s to %s",
+                self.name, filename, self.waiting_captask_dir, self.file_watch_dir
             )
             span.set_attribute("file.moved", True)
         except Exception as e:
-            logger.error(f"Failed to move file {src_path} to {dst_path}: {e}")
+            logger.error("%s: failed to move file %s to %s: %s", self.name, src_path, dst_path, e)
             span.record_exception(e)
-            file_move_errors_counter.add(1, {"processor.name": self.name, "error": "move_failed"})
+            self.file_move_errors_counter.add(1, {"processor.name": self.name, "error": "move_failed"})
             raise
 
-    def notify(self) -> None:
-        """
-        External notification that new tasks may be available.
-        - If current status is 'idle', wake up immediately to fetch new tasks.
-        - If status is 'normal', do nothing (already actively processing).
-        """
-        current_status = self.status
-        logger.debug(f"Notify called on processor '{self.name}'. Current status: {current_status}")
-        if current_status == "idle":
-            logger.info(f"Processor '{self.name}' is idle; waking up to consume new tasks")
-            self._wakeup_event.set()
-        else:
-            logger.debug(f"Processor '{self.name}' is normal; ignoring notification")
 
-    def _update_idle_metric(self) -> None:
-        """Update the idle gauge metric based on current status."""
-        value = 1 if self.status == "idle" else 0
-        idle_status_gauge.add(value, {"processor.name": self.name})
-
-
-# Missing / Future Features (kept as comments for open-source tracking):
+# Missing / Future Features (kept as comments for open‑source tracking):
 # - Support for other file extensions (e.g., .yaml) if needed.
-# - Configurable wait parameters (initial wait, max wait, idle threshold).
-# - Dead-letter handling for files that repeatedly fail to move.
+# - Configurable wait parameters (initial wait, max wait, idle threshold) – currently fixed in base class.
+# - Dead‑letter handling for files that repeatedly fail to move.
 # - Batch processing support.
 # - Integration with external health checks.
