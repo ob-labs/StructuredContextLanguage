@@ -38,38 +38,6 @@ class FileHandler(FileSystemEventHandler):
     """
     Watches a directory for new task files (JSON/YAML), validates them,
     converts to Task or CapTask objects, and queues them appropriately.
-
-    Example usage:
-        from scl.queue.taskQueue import TaskQueue
-        from scl.queue.capabilityTaskQueues import CapabilityTaskQueues
-        from scl.queue.awaitingApproveQueue import AwaitingApproveQueue
-        from scl.queue.awaitingCapTasksQueue import AwaitingCapTasksQueue
-        from watchdog.observers import Observer
-        from file_handler import FileHandler  # adjust import
-
-        # Setup queues
-        task_queue = TaskQueue()
-        captask_queue = CapabilityTaskQueues()
-        waiting_approval_queue = AwaitingApproveQueue()
-        waiting_captask_queue = AwaitingCapTasksQueue()
-
-        # Create handler
-        handler = FileHandler(
-            watch_path="/path/to/watch",
-            task_queue=task_queue,
-            captask_queue=captask_queue,
-            waiting_approval_queue=waiting_approval_queue,
-            waiting_captask_queue=waiting_captask_queue
-        )
-
-        # Start watching
-        observer = handler.start()
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            observer.stop()
-        observer.join()
     """
 
     def __init__(
@@ -304,3 +272,37 @@ class FileHandler(FileSystemEventHandler):
 # - Atomic move/rename handling across filesystems.
 # - Configurable folder names.
 # - Support for other serialization formats (e.g., TOML).
+
+"""
+    Example usage:
+        from scl.queue.taskQueue import TaskQueue
+        from scl.queue.capabilityTaskQueues import CapabilityTaskQueues
+        from scl.queue.awaitingApproveQueue import AwaitingApproveQueue
+        from scl.queue.awaitingCapTasksQueue import AwaitingCapTasksQueue
+        from watchdog.observers import Observer
+        from file_handler import FileHandler  # adjust import
+
+        # Setup queues
+        task_queue = TaskQueue()
+        captask_queue = CapabilityTaskQueues()
+        waiting_approval_queue = AwaitingApproveQueue()
+        waiting_captask_queue = AwaitingCapTasksQueue()
+
+        # Create handler
+        handler = FileHandler(
+            watch_path="/path/to/watch",
+            task_queue=task_queue,
+            captask_queue=captask_queue,
+            waiting_approval_queue=waiting_approval_queue,
+            waiting_captask_queue=waiting_captask_queue
+        )
+
+        # Start watching
+        observer = handler.start()
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            observer.stop()
+        observer.join()
+"""

@@ -25,6 +25,42 @@ Dependencies (pip install):
 - (optional) scl-coretools   # provides scl.otel, scl.config, scl.meta, scl.queues
 If the scl packages are not installed, the module will use no‑op or mock implementations
 so that the processor can still be tested in isolation.
+
+Example usage:
+
+    from scl.queues.capTaskQueues import CapabilityTaskQueues
+    from scl.meta.captask import CapTask
+    from scl.cap_registry import CapRegistry
+    from scl.processor.capability_processor import CapabilityProcessor  # this module
+
+    # Build registry with a concrete capability
+    class GreetCap(Capability):
+        def execute(self, args_dict: dict):
+            return f"Hello, {args_dict['name']}!"
+
+    cap_registry = CapRegistry()
+    cap_registry.register("greet", GreetCap("greet"))
+
+    # Setup queue and processor
+    queues = CapabilityTaskQueues()
+    processor = CapabilityProcessor(
+        name="greet",
+        queue=queues,
+        cap_registry=cap_registry
+    )
+
+    # The processor automatically registers itself with the queue on __init__.
+    # It can also be done explicitly via processor.register_with_queue() if needed.
+
+    # Start processing in background
+    processor.start()
+
+    # Add a task to the queue (the queue will notify the processor)
+    task = CapTask(cap_name="greet", args={"name": "World"}, hash="a1b2c3")
+    queues.add(task)
+
+    # ... later
+    processor.stop()
 """
 
 import logging
@@ -70,41 +106,14 @@ tasks_failed_counter = meter.create_counter(
 
 class CapabilityProcessor(BaseQueueProcessor):
     """
-    Example usage:
-
-        from scl.queues.capTaskQueues import CapabilityTaskQueues
-        from scl.meta.captask import CapTask
-        from scl.cap_registry import CapRegistry
-
-        # Build registry with a concrete capability
-        class GreetCap(Capability):
-            def execute(self, args_dict: dict):
-                return f"Hello, {args_dict['name']}!"
-
-        cap_registry = CapRegistry()
-        cap_registry.register("greet", GreetCap("greet"))
-
-        # Setup queue and processor
-        queues = CapabilityTaskQueues()
-        processor = CapabilityProcessor(
-            name="greet",
-            queue=queues,
-            cap_registry=cap_registry
-        )
-
-        # The processor may register itself automatically on init
-        # processor.register_with_queue()  # optional, if not done in __init__
-
-        # Start processing in background
-        processor.start()
-
-        # Add a task to the queue
-        task = CapTask(cap_name="greet", args={"name": "World"}, hash="a1b2c3")
-        queues.add(task)
-
-        # ... later
-        processor.stop()
+    Processes CapTask instances for a specific capability name.
+    Subscribes to the CapabilityTaskQueues and executes the corresponding Capability.
+    For usage examples, see the bottom of this file.
     """
+
+    # Example usage (abbreviated, see full version at end of file):
+    # processor = CapabilityProcessor(name="greet", queue=queues, cap_registry=reg)
+    # processor.start()
 
     def __init__(
         self,
@@ -122,9 +131,29 @@ class CapabilityProcessor(BaseQueueProcessor):
         self.queue = queue
         self.cap_registry = cap_registry
 
-        # Register our notify callback so the queue can wake us up
-        self.queue.register_notifier(self.name, lambda name, task: self.notify())
+        # Register itself with the queue (both processor and notifier)
+        self.register_with_queue()
         logger.info("CapabilityProcessor '%s' ready", self.name)
+
+    def register_with_queue(self):
+        """Register processor and its notifier with the queue."""
+        # If the queue supports explicit processor registration
+        try:
+            self.queue.register_processor(self.name, self)
+        except AttributeError:
+            logger.debug("Queue does not support register_processor; ignoring.")
+        # Always register a notifier so the queue can wake this processor
+        self.queue.register_notifier(self.name, lambda name, task: self.notify())
+        logger.debug("Processor '%s' registered with queue", self.name)
+
+    def stop(self):
+        """Gracefully stop the processor and unregister from the queue."""
+        super().stop()
+        try:
+            self.queue.unregister_processor(self.name)
+        except AttributeError:
+            logger.debug("Queue does not support unregister_processor; ignoring.")
+        logger.info("CapabilityProcessor '%s' stopped", self.name)
 
     # ------------------------------------------------------------------ Abstract implementations
     @tracer.start_as_current_span("CapabilityProcessor._get_item")
@@ -170,8 +199,9 @@ class CapabilityProcessor(BaseQueueProcessor):
 
             span.set_attribute("capability.registered", True)
 
-            # Execute the capability
+            # Execute the capability (business logic)
             result = capability.execute(item.args)
+            logger.debug("Capability executed for task %s, result: %s", item.hash, result)
 
             # Success path
             item.status = "success"
@@ -215,3 +245,6 @@ class CapabilityProcessor(BaseQueueProcessor):
 # - Current scl imports are assumed to be available; no try/except fallback is kept as per the
 #   open-source spirit – users should install the full scl-coretools package or adapt the
 #   imports to their own structure.
+
+# ----------------------------------------------------------------------
+# Example usage (place at bottom as requested by project convention)

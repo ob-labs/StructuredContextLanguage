@@ -109,12 +109,22 @@ class Capability(ABC):
     def embedding_description(self):
         """
         Embedding vector of the description used for RAG progressive loading.
-        Computed lazily and cached.
+        Computed lazily and cached. Returns None if no description is available.
         """
         if self._embedding_description is None:
             current_span = trace.get_current_span()
             current_span.set_attribute("capability.name", self._name)
             current_span.set_attribute("capability.type", self._type)
+
+            # Guard against missing description
+            if self._description is None:
+                self._embedding_description = None
+                logger.warning(
+                    "Cannot generate embedding for capability '%s': no description provided.",
+                    self._name
+                )
+                current_span.set_attribute("embedding.skipped", True)
+                return None
 
             logger.debug(f"Generating embedding for capability '{self._name}'")
             try:
@@ -178,3 +188,48 @@ class Capability(ABC):
         return (self._name == other._name and
                 self._description == other._description and
                 self._original_body == other._original_body)
+
+
+# ----------------------------------------------------------------------
+# Example usage (how other files would import and use this module)
+# ----------------------------------------------------------------------
+#
+# In another file, say `skills.py`:
+#
+#   from capability import Capability
+#
+#   class Skill(Capability):
+#       def execute(self, args_dict):
+#           # Business logic for a skill
+#           print(f"Executing skill {self.name} with {args_dict}")
+#           return {"status": "ok", "result": f"Skill {self.name} done"}
+#
+#   class FunctionCall(Capability):
+#       def execute(self, args_dict):
+#           # Actually run the code in a sandbox
+#           code = self.function_impl or "pass"
+#           print(f"Running function {self.name} code: {code}")
+#           # ... sandbox execution ...
+#           return f"FunctionCall {self.name} result"
+#
+#   # Creating capabilities
+#   skill1 = Skill(
+#       name="web_search",
+#       type="skill",
+#       description="Search the web for information",
+#       original_body="Search function..."
+#   )
+#   func1 = FunctionCall(
+#       name="calculate",
+#       type="function",
+#       description="Calculate mathematical expression",
+#       function_impl="def calculate(expr): return eval(expr)"
+#   )
+#
+#   # Lazy embedding computation (first access triggers generation)
+#   emb_skill = skill1.embedding_description
+#   emb_func = func1.embedding_description
+#
+#   # Execute capabilities
+#   result_skill = skill1.execute({"query": "latest news"})
+#   result_func = func1.execute({"expr": "2+2"})

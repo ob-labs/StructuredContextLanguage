@@ -287,3 +287,46 @@ class CapTask:
             f"CapTask(hash='{self.hash}', cap_name='{self.cap_name}', "
             f"args_count={len(self.args)}, approval={self.approval}, status='{self.status}')"
         )
+
+
+# =============================================================================
+# Example usage:
+#   This module is typically invoked from other parts of the system.
+#   Below are common patterns for using CapTask in workflows or tests.
+# =============================================================================
+"""
+Example usage:
+
+    from cap_task import CapTask
+
+    # 1. Creating a new task (automatically writes to todo_watch_dir/<hash>.json)
+    task = CapTask(
+        cap_name="send_email",
+        args=["user@example.com", "Hello!"],
+        task_hash="workflow-123",
+        approval=True
+    )
+
+    # 2. Updating task status after processing
+    task.set_status("Processed")
+
+    # 3. Serializing to JSON for message queuing or storage
+    json_str = task.to_json()
+    print(json_str)
+
+    # 4. Deserializing from JSON (will also write a file to todo_watch_dir)
+    restored_task = CapTask.from_json(json_str)
+
+    # 5. Creating from a dictionary (e.g., from an API payload)
+    data = {
+        "cap_name": "run_report",
+        "args": ["monthly", 42],
+        "approval": False
+    }
+    task2 = CapTask.from_dict(data)
+
+    # 6. Inspecting the task
+    print(task2.hash)         # auto-generated UUID
+    print(task2.status)       # 'created' (or 'Processed' if set)
+    print(task2.approval)     # False
+"""

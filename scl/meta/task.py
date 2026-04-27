@@ -68,24 +68,6 @@ class Task:
     """
     Represents a task with a system prompt, prompt history, capacity list,
     status, approval flag, hash chain, subtasks, CapTask list, and LRU status view.
-
-    Example usage:
-        from scl.meta.captask import CapTask
-
-        task = Task(
-            system_prompt="You are a helpful assistant.",
-            prompt_list=["User: Hello"],
-            capacity=["cpu", "memory"],
-        )
-        # Add a CapTask
-        cap = CapTask(cap_name="send_email", args=["user@example.com", "Subject"])
-        task.add_cap_task(cap)
-
-        # Serialize to JSON
-        json_str = task.to_json()
-
-        # Check latest status (LRU view)
-        print(task.get_latest_status())
     """
 
     VALID_STATUSES = {"created", "subtasking", "done"}
@@ -590,3 +572,22 @@ if __name__ == "__main__":
     root.add_subtask(child2)
     siblings = child.get_siblings()
     print(f"Child has {len(siblings)} sibling(s)")
+"""
+Example usage:
+        from scl.meta.captask import CapTask
+
+        task = Task(
+            system_prompt="You are a helpful assistant.",
+            prompt_list=["User: Hello"],
+            capacity=["cpu", "memory"],
+        )
+        # Add a CapTask
+        cap = CapTask(cap_name="send_email", args=["user@example.com", "Subject"])
+        task.add_cap_task(cap)
+
+        # Serialize to JSON
+        json_str = task.to_json()
+
+        # Check latest status (LRU view)
+        print(task.get_latest_status())
+    """

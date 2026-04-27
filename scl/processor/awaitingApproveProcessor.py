@@ -41,32 +41,6 @@ class AwaitingApproveProcessor(BaseQueueProcessor):
 
     Inherits the exponential backoff loop, idle status notification, and
     common metrics from BaseQueueProcessor.
-
-    Example usage:
-        from scl.queue.awaitingApproveQueue import AwaitingApproveQueue
-        from scl.processor.awaitingApproveProcessor import AwaitingApproveProcessor
-
-        # Setup queue and folders
-        approve_queue = AwaitingApproveQueue()
-        waiting_approval_dir = "/path/to/waitingapproval"
-        file_watch_dir = "/path/to/file_watch"
-
-        # Create and start processor
-        processor = AwaitingApproveProcessor(
-            source_queue=approve_queue,
-            waiting_approval_dir=waiting_approval_dir,
-            file_watch_dir=file_watch_dir
-        )
-        processor.start()
-
-        # External component can notify when new items might be available
-        processor.notify()
-
-        # Check status
-        print(processor.status)  # 'normal' or 'idle'
-
-        # Graceful shutdown
-        processor.stop()
     """
 
     def __init__(
@@ -218,6 +192,35 @@ class AwaitingApproveProcessor(BaseQueueProcessor):
             self.file_move_errors_counter.add(1, {"processor.name": self.name, "error": "move_failed"})
             raise
 
+
+# ------------------------------------------------------------------ Example usage
+"""
+Example usage:
+    from scl.queue.awaitingApproveQueue import AwaitingApproveQueue
+    from scl.processor.awaitingApproveProcessor import AwaitingApproveProcessor
+
+    # Setup queue and folders
+    approve_queue = AwaitingApproveQueue()
+    waiting_approval_dir = "/path/to/waitingapproval"
+    file_watch_dir = "/path/to/file_watch"
+
+    # Create and start processor
+    processor = AwaitingApproveProcessor(
+        source_queue=approve_queue,
+        waiting_approval_dir=waiting_approval_dir,
+        file_watch_dir=file_watch_dir
+    )
+    processor.start()
+
+    # External component can notify when new items might be available
+    processor.notify()
+
+    # Check status
+    print(processor.status)  # 'normal' or 'idle'
+
+    # Graceful shutdown
+    processor.stop()
+"""
 
 # ------------------------------------------------------------------ Missing / Future Features (kept for open-source tracking)
 # - Support for other file extensions (e.g., .yaml) if needed.

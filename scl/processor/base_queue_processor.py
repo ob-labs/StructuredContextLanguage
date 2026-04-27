@@ -11,7 +11,7 @@ Design Goals (shared by all processors):
 Dependencies (pip install):
   - opentelemetry-api
   - opentelemetry-sdk
-  - scl-coretools  (optional; if missing, OTEL becomes no‑op)
+  - scl-coretools  (provides tracer, meter)
 """
 
 import abc
@@ -71,14 +71,12 @@ class BaseQueueProcessor(abc.ABC):
             description="Total items consumed from the queue"
         )
 
-        # Use an ObservableGauge to report the current idle status (0=normal, 1=idle)
-        # This gives an accurate instantaneous reading rather than accumulating adds.
+        # ObservableGauge reports the current idle status (1 = idle, 0 = normal).
         self.idle_gauge = meter.create_observable_gauge(
             f"{self.name}.idle",
             description="Current idle status (1=idle, 0=normal)",
             callbacks=[self._idle_gauge_callback]
         )
-        # We need to store the current value so the callback can return it.
         self._idle_value = 0
 
         self.logger.info("%s initialized", self.name)
@@ -130,12 +128,16 @@ class BaseQueueProcessor(abc.ABC):
                 self._wakeup_event.wait(timeout=self._wait_time)
                 self._wakeup_event.clear()
             else:
-                self._process_item(item)
+                # Process the item inside its own span for fine‑grained tracing
+                with tracer.start_as_current_span(f"{self.name}.process_item") as item_span:
+                    item_span.set_attribute("item", str(item))
+                    self._process_item(item)
+
                 # Reset backoff after successful consumption
                 self._wait_time = 1.0
                 self._update_idle_metric()
-                # Increment items consumed counter
                 self.items_consumed_counter.add(1, {"processor.name": self.name})
+
         self.logger.debug("%s: consume loop exited.", self.name)
 
     # ------------------------------------------------------------------ Abstract methods
@@ -167,9 +169,45 @@ class BaseQueueProcessor(abc.ABC):
 
     # ------------------------------------------------------------------ Helper
     def _update_idle_metric(self) -> None:
-        """Update the stored idle gauge value based on current status."""
+        """Update the stored idle gauge value."""
         self._idle_value = 1 if self.status == "idle" else 0
 
-    def _idle_gauge_callback(self, _):
-        """Callback for ObservableGauge – returns the current idle value."""
-        return self._idle_value
+    def _idle_gauge_callback(self, observer: Any) -> None:
+        """
+        OpenTelemetry ObservableGauge callback.
+        Reports the current idle value (1 = idle, 0 = normal).
+        """
+        observer.observe(self._idle_value, {"processor.name": self.name})
+
+
+# ---------------------------------------------------------------------------
+# Example usage (as a comment for reference)
+# ---------------------------------------------------------------------------
+"""
+class MyProcessor(BaseQueueProcessor):
+    def __init__(self, queue):
+        super().__init__("my-processor")
+        self.queue = queue
+
+    def _get_item(self):
+        try:
+            return self.queue.get_nowait()
+        except queue.Empty:
+            return None
+
+    def _process_item(self, item):
+        # do some work...
+        pass
+
+if __name__ == "__main__":
+    import queue
+    q = queue.Queue()
+    proc = MyProcessor(q)
+    proc.start()
+    # feed items...
+    q.put("task1")
+    # notify if processor seems idle
+    proc.notify()
+    # cleanup
+    proc.stop()
+"""
