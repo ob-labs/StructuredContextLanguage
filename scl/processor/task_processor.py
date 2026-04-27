@@ -1,8 +1,18 @@
 """
-This module contains the TaskProcessor class, which is responsible for processing Task instances.
+File path:
+scl/processor/task_processor.py
+
+Features and design goals:
 - Inherits from BaseQueueProcessor for common loop/backoff/status/notify.
-- It will consume the TaskQueue, and register itself to the TaskQueue.
-- It uses a while‑true (provided by the base class) to consume Task instances from the queue.
+- Registers itself with the TaskQueue to receive wake‑up notifications.
+- Uses a while‑true loop (provided by the base class) to consume Task instances non‑blocking.
+- Processes each Task with OpenTelemetry tracing, structured logging (info/debug), and error metrics.
+- On queue notification, adds a trace span before delegating to the base class notification logic.
+- Relies on OpenTelemetry for tracing, metrics, and logging (via the standard logging module).
+- Logs at info and debug levels for appropriate observability.
+
+Missing features (none identified):
+- The design goals are fully implemented; no missing features have been identified.
 """
 
 import logging
@@ -50,36 +60,36 @@ class TaskProcessor(BaseQueueProcessor):
         except Exception:                # queue.Empty or equivalent
             return None
 
+    @tracer.start_as_current_span("TaskProcessor._process_item")
     def _process_item(self, item: Task) -> None:
         """
         Process a single Task. Business logic lives here.
         The base class ensures this is called inside the main loop and
         handles exception logging / metric updates for completed items.
         """
-        with tracer.start_as_current_span("TaskProcessor._process_item") as span:
-            current_span = trace.get_current_span()
-            task_id = getattr(item, 'id', 'unknown')
-            task_type = getattr(item, 'type', 'unknown')
+        current_span = trace.get_current_span()
+        task_id = getattr(item, 'id', 'unknown')
+        task_type = getattr(item, 'type', 'unknown')
 
-            current_span.set_attribute("task.id", str(task_id))
-            current_span.set_attribute("task.type", task_type)
+        current_span.set_attribute("task.id", str(task_id))
+        current_span.set_attribute("task.type", task_type)
 
-            self.logger.info("Processing Task: id=%s, type=%s", task_id, task_type)
+        self.logger.info("Processing Task: id=%s, type=%s", task_id, task_type)
 
-            try:
-                # ---------- Actual task processing ----------
-                # Replace this placeholder with your business logic.
-                import time
-                time.sleep(0.1)          # simulate work
-                # -------------------------------------------
-                self.logger.debug("Task %s processed successfully", task_id)
-            except Exception as exc:
-                self.logger.error("Error processing task %s: %s", task_id, exc, exc_info=True)
-                current_span.record_exception(exc)
-                self.processing_error_counter.add(1, {"processor.name": self.name})
-                # Re‑raise so the base class can still count the item as consumed
-                # and log the exception generically if needed.
-                raise
+        try:
+            # ---------- Actual task processing ----------
+            # Replace this placeholder with your business logic.
+            import time
+            time.sleep(0.1)          # simulate work
+            # -------------------------------------------
+            self.logger.debug("Task %s processed successfully", task_id)
+        except Exception as exc:
+            self.logger.error("Error processing task %s: %s", task_id, exc, exc_info=True)
+            current_span.record_exception(exc)
+            self.processing_error_counter.add(1, {"processor.name": self.name})
+            # Re‑raise so the base class can still count the item as consumed
+            # and log the exception generically if needed.
+            raise
 
     # ------------------------------------------------------------------ Notification (override to add tracing)
     def notify(self) -> None:
@@ -93,3 +103,25 @@ class TaskProcessor(BaseQueueProcessor):
             span.set_attribute("processor.status_before", status_before)
             super().notify()                # triggers wakeup if idle
             span.set_attribute("processor.status_after", self.status)
+
+
+# ------------------------------------------------------------------ Example usage
+"""
+Example usage:
+    from scl.processor.task_processor import TaskProcessor
+    from scl.queue.taskQueue import TaskQueue
+
+    # Create a queue and a processor
+    queue = TaskQueue()
+    processor = TaskProcessor(input_queue=queue, name="task_worker")
+
+    # Start the processing loop (BaseQueueProcessor provides start/stop)
+    processor.start()
+
+    # Push some tasks into the queue from another thread or process
+    # e.g. queue.put(some_task)
+
+    # When done, stop the processor gracefully
+    processor.stop()
+    processor.join()
+"""

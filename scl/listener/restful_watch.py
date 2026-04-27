@@ -1,19 +1,20 @@
 """
-RESTful API for receiving scl.meta.task items via POST requests
-1. It receives scl.meta.task format as JSON body.
-2. It converts the task into a Task instance.
-3. It responds with the scl.meta.task's hash value to the client if successful.
-4. It allows clients to check the status of a task or captask by its hash value.
-5. It lists all tasks or captasks which waiting for approval.
-6. It allows clients to approve tasks or captasks by hash value.
+Features and design goals
+- RESTful API for receiving scl.meta.task items via POST requests
+  1. It receives scl.meta.task format as JSON body.
+  2. It converts the task into a Task instance.
+  3. It responds with the scl.meta.task's hash value to the client if successful.
+  4. It allows clients to check the status of a task or captask by its hash value.
+  5. It lists all tasks or captasks which waiting for approval.
+  6. It allows clients to approve tasks or captasks by hash value.
 
 RESTful API for client to check existing task and its status.
-1. It receives hash value as a path parameter.
-2. It checks if the hash value exists in the file_watch directory.
-3. It responds with the task status in JSON format.
+  1. It receives hash value as a path parameter.
+  2. It checks if the hash value exists in the file_watch directory.
+  3. It responds with the task status in JSON format.
 
 Note:
-waiting_approval_dir is a subdirectory under watch_path (fixed name: "waitingapproval").
+  waiting_approval_dir is a subdirectory under watch_path (fixed name: "waitingapproval").
 
 Dependencies:
     fastapi, uvicorn, pyyaml, opentelemetry-api, opentelemetry-sdk
@@ -45,14 +46,6 @@ class RestFulHandler:
     """
     REST API handler that receives Task/CapTask items, writes them to file_watch,
     provides status lookup, lists waiting items, and allows approval.
-
-    Example usage:
-        handler = RestFulHandler(
-            watch_path="/path/to/file_watch",
-            host="0.0.0.0",
-            port=8000
-        )
-        handler.start()  # Blocks until server stops
     """
 
     def __init__(
@@ -397,15 +390,10 @@ class RestFulHandler:
         uvicorn.run(self.app, host=self.host, port=self.port, log_level=self.log_level)
 
 
-# ---------------------------------------------------------------------
-# Example usage (if run as script)
-# ---------------------------------------------------------------------
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-
-    handler = RestFulHandler(
-        watch_path="./data/file_watch",
-        host="127.0.0.1",
-        port=8000
-    )
-    handler.start()
+# Example usage:
+# handler = RestFulHandler(
+#     watch_path="/path/to/file_watch",
+#     host="0.0.0.0",
+#     port=8000
+# )
+# handler.start()  # Blocks until server stops

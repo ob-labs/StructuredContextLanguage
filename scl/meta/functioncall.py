@@ -134,3 +134,31 @@ class FunctionCall(Capability):
 
     def __repr__(self) -> str:
         return f"FunctionCall(name='{self.name}', impl_available={self.function_impl is not None})"
+
+
+"""
+    Example usage:
+    --------------
+    from scl.capabilities.function_call import FunctionCall
+
+    # Create a simple arithmetic capability
+    add_cap = FunctionCall(
+        name="add",
+        description="Returns the sum of two numbers",
+        original_body="Adds a and b",
+        function_impl="return a + b"
+    )
+
+    # Execute with parameters
+    result = add_cap.execute({"a": 5, "b": 7})
+    print(result)  # 12
+
+    # A more complex function using a print statement
+    greet_cap = FunctionCall(
+        name="greet",
+        description="Prints a greeting to a person",
+        original_body="Greets the user by name",
+        function_impl="print(f'Hello, {name}!')"
+    )
+    greet_cap.execute({"name": "Alice"})  # prints "Hello, Alice!"
+"""

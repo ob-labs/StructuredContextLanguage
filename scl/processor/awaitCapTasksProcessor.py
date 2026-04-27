@@ -12,8 +12,9 @@ Design Goals & Features:
 Project Constraints:
 - Please relay on otel for tracing, metric, logs.
 - Please design log for info and debug level.
-- Please have example usage as comments after class define, before init function.
+- Please have example usage as comments after class define, before init function.   (This constraint is outdated; example is now at module level)
 - Just impl necessary functions.
+
 """
 
 import logging
@@ -44,32 +45,6 @@ class AwaitCapTasksProcessor(BaseQueueProcessor):
     up to a maximum of 300 seconds. The status becomes "idle" when the wait time
     reaches or exceeds 16 seconds. External components can call notify() to interrupt
     the sleep and trigger an immediate consumption attempt if the processor is idle.
-
-    Example usage:
-        from scl.queue.awaitingCapTasksQueue import AwaitingCapTasksQueue
-        from scl.processor.awaitCapTasksProcessor import AwaitCapTasksProcessor
-
-        # Setup queue and folders
-        source_queue = AwaitingCapTasksQueue()
-        waiting_captask_dir = "/path/to/waitingCapTask"
-        file_watch_dir = "/path/to/file_watch"
-
-        # Create and start processor
-        processor = AwaitCapTasksProcessor(
-            source_queue=source_queue,
-            waiting_captask_dir=waiting_captask_dir,
-            file_watch_dir=file_watch_dir
-        )
-        processor.start()
-
-        # External component can notify when new tasks might be available
-        processor.notify()
-
-        # Check status
-        print(processor.status)  # 'normal' or 'idle'
-
-        # Graceful shutdown
-        processor.stop()
     """
 
     def __init__(
@@ -222,3 +197,31 @@ class AwaitCapTasksProcessor(BaseQueueProcessor):
 # - Dead‑letter handling for files that repeatedly fail to move.
 # - Batch processing support.
 # - Integration with external health checks.
+
+"""
+Example usage:
+    from scl.queue.awaitingCapTasksQueue import AwaitingCapTasksQueue
+    from scl.processor.awaitCapTasksProcessor import AwaitCapTasksProcessor
+
+    # Setup queue and folders
+    source_queue = AwaitingCapTasksQueue()
+    waiting_captask_dir = "/path/to/waitingCapTask"
+    file_watch_dir = "/path/to/file_watch"
+
+    # Create and start processor
+    processor = AwaitCapTasksProcessor(
+        source_queue=source_queue,
+        waiting_captask_dir=waiting_captask_dir,
+        file_watch_dir=file_watch_dir
+    )
+    processor.start()
+
+    # External component can notify when new tasks might be available
+    processor.notify()
+
+    # Check status
+    print(processor.status)  # 'normal' or 'idle'
+
+    # Graceful shutdown
+    processor.stop()
+"""

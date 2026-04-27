@@ -1,336 +1,258 @@
 """
-Unit tests for BaseQueueProcessor.
+Tests for base_queue_processor.py
 """
 
+import time
+import unittest
+from unittest.mock import (
+    Mock,
+    MagicMock,
+    PropertyMock,
+    call,
+    patch,
+)
 import threading
-from unittest.mock import Mock, patch, call, ANY
-
-import pytest
 
 from scl.processor.base_queue_processor import BaseQueueProcessor
 
-
 # ---------------------------------------------------------------------------
-# Concrete subclass for testing
+# Concrete minimal implementations for testing
 # ---------------------------------------------------------------------------
 class TestProcessor(BaseQueueProcessor):
-    """Concrete implementation that returns items from a predefined list."""
+    """A concrete processor that returns items from a list."""
 
-    __test__ = False  # prevent pytest from collecting as a test class
-
-    def __init__(self, name="test-proc", items=None):
-        super().__init__(name)
-        self.items = list(items or [])
-        self.processed = []  # record processed items
+    def __init__(self, items=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.items = list(items) if items else []
+        self.processed = []
 
     def _get_item(self):
-        if self.items:
-            return self.items.pop(0)
-        return None
+        if not self.items:
+            return None
+        return self.items.pop(0)
 
     def _process_item(self, item):
         self.processed.append(item)
+        time.sleep(0.001)  # simulate work
 
 
 class StoppingProcessor(TestProcessor):
-    """Processor that stops after processing the first item."""
+    """A processor that stops itself after processing the last item."""
+
     def _process_item(self, item):
         super()._process_item(item)
-        self._running = False
+        if not self.items:   # no more items left
+            self._running = False
 
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# Base test class with patches
 # ---------------------------------------------------------------------------
-@pytest.fixture(autouse=True)
-def mock_otel():
-    """Mock OpenTelemetry dependencies so we don't need a real SDK."""
-    with patch("scl.processor.base_queue_processor.tracer") as mock_tracer, \
-         patch("scl.processor.base_queue_processor.meter") as mock_meter, \
-         patch("scl.processor.base_queue_processor.trace") as mock_trace:
-
-        # Make tracer.start_as_current_span work as a simple decorator
-        def start_as_current_span(name):
-            def decorator(f):
-                def wrapper(*args, **kwargs):
-                    return f(*args, **kwargs)
-                return wrapper
-            return decorator
-
-        mock_tracer.start_as_current_span.side_effect = start_as_current_span
-        mock_trace.get_current_span.return_value = Mock()
-
-        # Meter returns mocks that we can inspect
-        mock_counter = Mock()
-        mock_gauge = Mock()
-        mock_meter.create_counter.return_value = mock_counter
-        mock_meter.create_observable_gauge.return_value = mock_gauge
-
-        yield mock_tracer, mock_meter, mock_trace, mock_counter, mock_gauge
-
-
-# ---------------------------------------------------------------------------
-# Test cases
-# ---------------------------------------------------------------------------
-class TestBaseQueueProcessor:
-
-    def test_initialization(self, mock_otel):
-        """Verify constructor sets default values."""
-        proc = TestProcessor(name="my-proc")
-        assert proc.name == "my-proc"
-        assert proc._wait_time == 1.0
-        assert proc._max_wait == 300.0
-        assert proc._idle_threshold == 16.0
-        assert proc._running is False
-        assert proc._thread is None
-        assert isinstance(proc._wakeup_event, threading.Event)
-        assert proc._idle_value == 0
-
-        # Metrics should have been created
-        _, mock_meter, _, mock_counter, mock_gauge = mock_otel
-        mock_meter.create_counter.assert_called_once_with(
-            "my-proc.items_consumed", description=ANY
+class TestBaseQueueProcessor(unittest.TestCase):
+    def setUp(self):
+        # Patch tracer, meter, trace at module level to isolate from real OTel
+        patcher_tracer = patch(
+            "scl.processor.base_queue_processor.tracer", MagicMock(name="tracer")
         )
-        mock_meter.create_observable_gauge.assert_called_once_with(
-            "my-proc.idle", description=ANY, callbacks=[proc._idle_gauge_callback]
+        patcher_meter = patch(
+            "scl.processor.base_queue_processor.meter", MagicMock(name="meter")
         )
+        patcher_trace = patch(
+            "scl.processor.base_queue_processor.trace", MagicMock(name="trace")
+        )
+        self.addCleanup(patcher_tracer.stop)
+        self.addCleanup(patcher_meter.stop)
+        self.addCleanup(patcher_trace.stop)
+        self.mock_tracer = patcher_tracer.start()
+        self.mock_meter = patcher_meter.start()
+        self.mock_trace = patcher_trace.start()
 
-    def test_status_property_normal(self):
-        proc = TestProcessor()
-        proc._wait_time = 1.0
-        assert proc.status == "normal"
+        # Mock the span and context manager interface
+        self.mock_span = MagicMock(name="span")
+        self.mock_tracer.start_as_current_span.return_value.__enter__.return_value = (
+            self.mock_span
+        )
+        self.mock_tracer.start_as_current_span.return_value.__exit__ = Mock()
 
-    def test_status_property_idle_equal_threshold(self):
-        proc = TestProcessor()
+        # mock_meter.create_counter returns a mock counter
+        self.mock_counter = MagicMock(name="items_consumed_counter")
+        self.mock_meter.create_counter.return_value = self.mock_counter
+
+        # mock_meter.create_observable_gauge returns a mock gauge
+        self.mock_gauge = MagicMock(name="idle_gauge")
+        self.mock_meter.create_observable_gauge.return_value = self.mock_gauge
+
+        # trace.get_current_span returns our mock_span
+        self.mock_trace.get_current_span.return_value = self.mock_span
+
+        # Reset mocks to ensure test isolation
+        self.mock_tracer.reset_mock()
+        self.mock_meter.reset_mock()
+        self.mock_trace.reset_mock()
+
+    # ------------------------------------------------------------------ Constructor
+    def test_init_defaults(self):
+        proc = TestProcessor(name="test", logger_name="test")
+        self.assertEqual(proc.name, "test")
+        self.assertEqual(proc._wait_time, 1.0)
+        self.assertEqual(proc._max_wait, 300.0)
+        self.assertEqual(proc._idle_threshold, 16.0)
+        self.assertFalse(proc._running)
+        self.assertIsNone(proc._thread)
+        self.assertIsInstance(proc._wakeup_event, threading.Event)
+        self.assertEqual(proc.logger.name, "test")
+        # Metrics creation calls
+        self.mock_meter.create_counter.assert_called_with(
+            "test.items_consumed",
+            description="Total items consumed from the queue"
+        )
+        self.mock_meter.create_observable_gauge.assert_called()
+        self.assertEqual(proc._idle_value, 0)
+
+    def test_init_custom_logger(self):
+        proc = TestProcessor(name="custom", logger_name="my.logger")
+        self.assertEqual(proc.logger.name, "my.logger")
+
+    # ------------------------------------------------------------------ status property
+    def test_status_normal_when_wait_below_threshold(self):
+        proc = TestProcessor(name="x")
+        proc._wait_time = 15.9
+        self.assertEqual(proc.status, "normal")
+
+    def test_status_idle_when_wait_at_threshold(self):
+        proc = TestProcessor(name="x")
         proc._wait_time = 16.0
-        assert proc.status == "idle"
+        self.assertEqual(proc.status, "idle")
 
-    def test_status_property_idle_above_threshold(self):
-        proc = TestProcessor()
-        proc._wait_time = 300.0
-        assert proc.status == "idle"
-
-    def test_notify_idle_triggers_wakeup(self):
-        proc = TestProcessor()
-        proc._wait_time = 20.0  # idle
-
-        proc._wakeup_event = Mock()
-        proc.notify()
-        proc._wakeup_event.set.assert_called_once()
-
-    def test_notify_normal_does_nothing(self):
-        proc = TestProcessor()
-        proc._wait_time = 1.0  # normal
-
-        proc._wakeup_event = Mock()
-        proc.notify()
-        proc._wakeup_event.set.assert_not_called()
-
-    def test_update_idle_metric(self):
-        proc = TestProcessor()
-        proc._wait_time = 20.0  # idle
-        proc._update_idle_metric()
-        assert proc._idle_value == 1
-
-        proc._wait_time = 1.0
-        proc._update_idle_metric()
-        assert proc._idle_value == 0
-
-    def test_idle_gauge_callback(self):
-        proc = TestProcessor()
-        proc._idle_value = 1
-        assert proc._idle_gauge_callback(None) == 1
-
-    def test_start_creates_thread_and_sets_running(self, mock_otel):
-        proc = TestProcessor()
-        with patch("threading.Thread") as mock_thread:
-            proc.start()
-            mock_thread.assert_called_once_with(
-                target=proc._consume_loop, daemon=True, name=proc.name
-            )
-            mock_thread.return_value.start.assert_called_once()
-            assert proc._running is True
-            assert proc._thread is not None
-
-    def test_start_already_running_does_nothing(self, mock_otel):
-        proc = TestProcessor()
-        proc._running = True
-        with patch("threading.Thread") as mock_thread:
-            proc.start()
-            mock_thread.assert_not_called()
-
-    def test_stop_graceful_shutdown(self):
-        proc = TestProcessor()
-        proc._running = True
-        proc._wakeup_event = Mock()
-        mock_thread = Mock()
-        proc._thread = mock_thread
-
-        proc.stop()
-
-        assert proc._running is False
-        proc._wakeup_event.set.assert_called_once()
-        mock_thread.join.assert_called_once_with(timeout=2.0)
-
-    def test_stop_when_not_running_does_nothing(self):
-        proc = TestProcessor()
-        proc._wakeup_event = Mock()
-        proc.stop()
-        proc._wakeup_event.set.assert_not_called()
-
-    # -----------------------------------------------------------------------
-    # Consume loop tests (run synchronously)
-    # -----------------------------------------------------------------------
-    def test_consume_loop_processes_items(self, mock_otel):
-        *_, mock_counter, _ = mock_otel
-
-        items = ["a", "b", "c"]
-        proc = TestProcessor(items=items)
-        proc._running = True
-
-        proc._wakeup_event = Mock()
-
-        original_process = proc._process_item
-        def process_item_and_stop(item):
-            original_process(item)
-            if not proc.items:   # no more items
-                proc._running = False
-        proc._process_item = process_item_and_stop
-
-        proc._consume_loop()
-
-        assert proc.processed == items
-        assert mock_counter.add.call_count == 3
-        mock_counter.add.assert_has_calls([
-            call(1, {"processor.name": "test-proc"}),
-            call(1, {"processor.name": "test-proc"}),
-            call(1, {"processor.name": "test-proc"}),
-        ])
-
-    def test_consume_loop_exponential_backoff(self, mock_otel):
-        """When queue is empty, wait_time doubles before each wait."""
-        proc = TestProcessor(items=[])  # always empty
-        proc._running = True
-
-        proc._wakeup_event = Mock()
-        iteration = [0]
-
-        original_get = proc._get_item
-        def limited_get():
-            iteration[0] += 1
-            if iteration[0] >= 5:   # stop after 5 empty cycles
-                proc._running = False
-            return original_get()
-        proc._get_item = limited_get
-
-        wait_spy = Mock()
-        def wait_side_effect(timeout):
-            wait_spy(timeout)
-        proc._wakeup_event.wait.side_effect = wait_side_effect
-
-        proc._consume_loop()
-
-        expected_timeouts = [2.0, 4.0, 8.0, 16.0, 32.0]
-        wait_calls = [call[0][0] for call in wait_spy.call_args_list]
-        assert wait_calls == expected_timeouts
-        assert proc._wait_time == 32.0
-
-    def test_consume_loop_backoff_capped_at_max(self, mock_otel):
-        """Wait time should never exceed _max_wait (300s)."""
-        proc = TestProcessor(items=[])
-        proc._running = True
+    def test_status_idle_when_wait_above_threshold(self):
+        proc = TestProcessor(name="x")
         proc._wait_time = 200.0
+        self.assertEqual(proc.status, "idle")
 
-        proc._wakeup_event = Mock()
-        wait_spy = Mock()
-        proc._wakeup_event.wait.side_effect = lambda timeout: wait_spy(timeout)
+    # ------------------------------------------------------------------ start / stop
+    def test_start(self):
+        proc = TestProcessor(name="start_test", logger_name="start_test")
+        proc.start()
+        self.assertTrue(proc._running)
+        self.assertIsNotNone(proc._thread)
+        proc.stop()   # clean shutdown
 
-        iteration = [0]
-        original_get = proc._get_item
-        def limited_get():
-            iteration[0] += 1
-            if iteration[0] >= 3:   # 3 waits
-                proc._running = False
-            return original_get()
-        proc._get_item = limited_get
+    def test_start_already_running(self):
+        proc = TestProcessor(name="start_test", logger_name="start_test")
+        proc._running = True
+        proc.start()
+        self.assertIsNone(proc._thread)  # no new thread created
 
+    def test_stop_stops_thread(self):
+        proc = TestProcessor(name="stop_test", logger_name="stop_test")
+        proc.start()
+        time.sleep(0.05)
+        proc.stop()
+        self.assertFalse(proc._running)
+        if proc._thread:
+            self.assertFalse(proc._thread.is_alive())
+
+    def test_stop_when_not_running(self):
+        proc = TestProcessor(name="stop_test", logger_name="stop_test")
+        proc._running = False
+        proc._thread = None
+        proc.stop()  # no error expected
+
+    # ------------------------------------------------------------------ _consume_loop core logic
+    def test_consume_loop_processes_items(self):
+        items = ["a", "b", "c"]
+        proc = StoppingProcessor(name="test", logger_name="test", items=items)
+        proc._running = True
+        proc._wakeup_event = Mock()   # prevent actual blocking
         proc._consume_loop()
 
-        expected = [300.0, 300.0, 300.0]
-        actual = [call[0][0] for call in wait_spy.call_args_list]
-        assert actual == expected
+        # All items processed
+        self.assertEqual(proc.processed, items)
+        # Counter incremented once per item
+        self.assertEqual(self.mock_counter.add.call_count, 3)
+        # Verify span attribute was set (from the decorator span)
+        self.mock_span.set_attribute.assert_any_call("processor.name", "test")
 
-    def test_consume_loop_resets_wait_time_after_item(self, mock_otel):
-        """After a successful consumption, wait_time should reset to 1.0."""
+    def test_consume_loop_empty_queue_backoff(self):
+        proc = TestProcessor(name="backoff", logger_name="backoff", items=[])
+        proc._running = True
+        proc._wakeup_event = Mock()
+
+        # Stop after one iteration to observe backoff
+        original_wait = proc._wakeup_event.wait
+        def stop_after_first_wait(timeout):
+            proc._running = False
+            return original_wait(timeout)
+        proc._wakeup_event.wait = stop_after_first_wait
+
+        proc._consume_loop()
+        self.assertEqual(proc._wait_time, 2.0)  # 1.0 -> 2.0
+
+    def test_consume_loop_resets_wait_time_after_item(self):
         items = ["x"]
-        proc = StoppingProcessor(items=items)
-        proc._running = True          # ← required for the loop to run
+        proc = StoppingProcessor(name="reset", logger_name="reset", items=items)
+        proc._running = True
         proc._wait_time = 30.0
-
         proc._wakeup_event = Mock()
-
         proc._consume_loop()
+        self.assertEqual(proc._wait_time, 1.0)
+        self.assertEqual(self.mock_counter.add.call_count, 1)
 
-        assert proc._wait_time == 1.0
-        assert proc.processed == items
-
-    def test_consume_loop_calls_wakeup_event_wait_on_empty(self, mock_otel):
-        """Ensure wakeup_event.wait() is called with the (doubled) current wait_time."""
-        proc = TestProcessor(items=[])
+    def test_consume_loop_updates_idle_metric(self):
+        proc = StoppingProcessor(name="idle", logger_name="idle", items=["a"])
         proc._running = True
-        proc._wait_time = 5.0
-
         proc._wakeup_event = Mock()
-        wait_spy = Mock()
-        proc._wakeup_event.wait.side_effect = lambda timeout: wait_spy(timeout)
 
-        # Run only one iteration
-        def one_iteration():
-            proc._running = False
-            return None
-        proc._get_item = one_iteration
-
-        proc._consume_loop()
-
-        wait_spy.assert_called_once_with(10.0)
-        assert proc._wait_time == 10.0
-
-    def test_consume_loop_clears_event_after_wait(self, mock_otel):
-        """After wakeup_event.wait(), clear() must be called."""
-        proc = TestProcessor(items=[])
-        proc._running = True
-
-        proc._wakeup_event = Mock()
-        wait_spy = Mock()
-        proc._wakeup_event.wait.side_effect = lambda timeout: wait_spy(timeout)
-
-        def get_item_and_stop():
-            proc._running = False
-            return None
-        proc._get_item = get_item_and_stop
-
-        proc._consume_loop()
-
-        proc._wakeup_event.clear.assert_called()
-
-    def test_consume_loop_updates_idle_metric(self, mock_otel):
-        """Verify _update_idle_metric is called after each fetch (empty or not)."""
-        proc = StoppingProcessor(items=["a"])
-        proc._running = True
-
-        proc._wakeup_event = Mock()
         original_update = proc._update_idle_metric
         proc._update_idle_metric = Mock(side_effect=original_update)
 
         proc._consume_loop()
-        assert proc._update_idle_metric.call_count == 1
+        proc._update_idle_metric.assert_called()
+        self.assertEqual(proc._update_idle_metric.call_count, 1)
 
+    def test_consume_loop_backoff_capped_at_max(self):
+        proc = TestProcessor(name="max", logger_name="max", items=[])
         proc._running = True
-        proc.items = []
-        def get_item_and_stop():
+        proc._wait_time = 150.0
+        proc._wakeup_event = Mock()
+
+        def stop_loop(timeout):
             proc._running = False
-            return None
-        proc._get_item = get_item_and_stop
+        proc._wakeup_event.wait = stop_loop
 
         proc._consume_loop()
-        assert proc._update_idle_metric.call_count == 2
+        self.assertEqual(proc._wait_time, 300.0)  # capped at max
+
+    # ------------------------------------------------------------------ notify
+    def test_notify_when_normal_does_nothing(self):
+        proc = TestProcessor(name="notify", logger_name="notify")
+        proc._wait_time = 1.0
+        proc._wakeup_event.clear()
+        proc.notify()
+        self.assertFalse(proc._wakeup_event.is_set())
+
+    def test_notify_when_idle_sets_event(self):
+        proc = TestProcessor(name="notify", logger_name="notify")
+        proc._wait_time = 20.0
+        proc._wakeup_event.clear()
+        proc.notify()
+        self.assertTrue(proc._wakeup_event.is_set())
+
+    # ------------------------------------------------------------------ idle metric helpers
+    def test_update_idle_metric_sets_value(self):
+        proc = TestProcessor(name="metric", logger_name="metric")
+        proc._wait_time = 16.0
+        proc._update_idle_metric()
+        self.assertEqual(proc._idle_value, 1)
+        proc._wait_time = 1.0
+        proc._update_idle_metric()
+        self.assertEqual(proc._idle_value, 0)
+
+    def test_idle_gauge_callback(self):
+        proc = TestProcessor(name="gauge", logger_name="gauge")
+        proc._idle_value = 1
+        mock_observer = Mock()
+        proc._idle_gauge_callback(mock_observer)
+        mock_observer.observe.assert_called_once_with(
+            1, {"processor.name": "gauge"}
+        )

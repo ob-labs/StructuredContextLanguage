@@ -109,6 +109,11 @@ class TestInternalWatcher:
             assert watcher.internal_captask_counter == mock_counter3
             assert watcher.internal_captask_error_counter == mock_counter4
 
+    def test_init_invalid_format_raises_valueerror(self, watch_path):
+        """Test that initialising with an unsupported format raises ValueError."""
+        with pytest.raises(ValueError, match="output_format must be 'json' or 'yaml', got 'xml'"):
+            InternalWatcher(watch_path, output_format="xml")
+
     def test_add_valid_task_writes_file_and_returns_hash(self, internal_watcher, mock_task, watch_path):
         """Test adding a valid Task writes the correct JSON file and returns the hash."""
         with patch('scl.listener.Interal_watch.trace.get_current_span') as mock_get_span, \
@@ -221,6 +226,9 @@ class TestInternalWatcher:
             mock_span.set_attribute.assert_any_call("task.id", "unknown")
             mock_span.set_attribute.assert_any_call("task.type", "unknown")
 
+    # -------------------------------------------------------------------------
+    # Logging assertions now match the OSError object (not its string)
+    # -------------------------------------------------------------------------
     def test_logging_on_success_and_error(self, watch_path, mock_task):
         """Verify appropriate log messages are emitted for success and error cases."""
         with patch('scl.listener.Interal_watch.meter'), \
@@ -235,10 +243,13 @@ class TestInternalWatcher:
             # Success
             watcher.add(mock_task)
             mock_logger.debug.assert_called_with(
-                f"Internally generated Task received: id={mock_task.id}, hash={mock_task.hash}, type={mock_task.type}"
+                "Internally generated Task received: id=%s, hash=%s, type=%s",
+                mock_task.id, mock_task.hash, mock_task.type
             )
+            expected_path = os.path.join(watch_path, mock_task.hash + '.json')
             mock_logger.info.assert_called_with(
-                f"Internal Task {mock_task.hash} written to file: {os.path.join(watch_path, mock_task.hash + '.json')}"
+                "Internal Task %s written to file: %s",
+                mock_task.hash, expected_path
             )
 
             # Error: invalid type
@@ -254,7 +265,8 @@ class TestInternalWatcher:
                 with pytest.raises(OSError):
                     watcher.add(mock_task)
                 mock_logger.error.assert_called_with(
-                    f"Failed to write internal Task {mock_task.hash} to file: Permission denied",
+                    "Failed to write internal Task %s to file: %s",
+                    mock_task.hash, test_error,
                     exc_info=True
                 )
 
@@ -367,6 +379,9 @@ class TestInternalWatcher:
             # CapTask success counter NOT called
             internal_watcher._mock_captask_success_counter.add.assert_not_called()
 
+    # -------------------------------------------------------------------------
+    # Fixed CapTask logging assertions to use exception object
+    # -------------------------------------------------------------------------
     def test_captask_logging_on_success_and_error(self, watch_path):
         """Verify appropriate log messages are emitted for CapTask success and error cases."""
         mock_captask = Mock(spec=CapTask)
@@ -386,10 +401,13 @@ class TestInternalWatcher:
             # Success
             watcher.add(mock_captask)
             mock_logger.debug.assert_called_with(
-                f"Internally generated CapTask received: cap_name={mock_captask.cap_name}, hash={mock_captask.hash}"
+                "Internally generated CapTask received: cap_name=%s, hash=%s",
+                mock_captask.cap_name, mock_captask.hash
             )
+            expected_path = os.path.join(watch_path, mock_captask.hash + '.json')
             mock_logger.info.assert_called_with(
-                f"Internal CapTask {mock_captask.hash} written to file: {os.path.join(watch_path, mock_captask.hash + '.json')}"
+                "Internal CapTask %s written to file: %s",
+                mock_captask.hash, expected_path
             )
 
             # Error: file write failure
@@ -399,6 +417,55 @@ class TestInternalWatcher:
                 with pytest.raises(OSError):
                     watcher.add(mock_captask)
                 mock_logger.error.assert_called_with(
-                    f"Failed to write internal CapTask {mock_captask.hash} to file: Disk full",
+                    "Failed to write internal CapTask %s to file: %s",
+                    mock_captask.hash, test_error,
                     exc_info=True
                 )
+
+    # -------------------------------------------------------------------------
+    # Additional tests for YAML output format
+    # -------------------------------------------------------------------------
+    def test_add_task_yaml_format(self, watch_path, mock_task):
+        """Test that a Task is written as YAML when output_format is 'yaml'."""
+        import yaml
+
+        with patch('scl.listener.Interal_watch.meter'), \
+             patch('scl.listener.Interal_watch.tracer'), \
+             patch('scl.listener.Interal_watch.trace.get_current_span'), \
+             patch('builtins.open', mock_open()) as mock_file:
+            watcher = InternalWatcher(watch_path, output_format="yaml")
+            # ensure logger stays mock-free; not checked
+            watcher.logger = Mock()
+
+            watcher.add(mock_task)
+
+            expected_path = os.path.join(watch_path, mock_task.hash + '.yaml')
+            mock_file.assert_called_once_with(expected_path, 'w', encoding='utf-8')
+            handle = mock_file()
+            # yaml.dump should have been called; we cannot easily inspect the written data,
+            # but we can verify that the file was opened with the correct name.
+            # To verify content, we would need to mock yaml.dump, but we can trust that
+            # the implementation uses yaml.dump internally.
+            # For thoroughness, check that write was called at least once.
+            assert handle.write.called
+
+    def test_add_captask_yaml_format(self, watch_path):
+        """Test that a CapTask is written as YAML when output_format is 'yaml'."""
+        mock_captask = Mock(spec=CapTask)
+        mock_captask.hash = "captask789"
+        mock_captask.cap_name = "test"
+        mock_captask.to_dict.return_value = {"hash": "captask789", "cap_name": "test"}
+
+        with patch('scl.listener.Interal_watch.meter'), \
+             patch('scl.listener.Interal_watch.tracer'), \
+             patch('scl.listener.Interal_watch.trace.get_current_span'), \
+             patch('builtins.open', mock_open()) as mock_file:
+            watcher = InternalWatcher(watch_path, output_format="yaml")
+            watcher.logger = Mock()
+
+            watcher.add(mock_captask)
+
+            expected_path = os.path.join(watch_path, mock_captask.hash + '.yaml')
+            mock_file.assert_called_once_with(expected_path, 'w', encoding='utf-8')
+            handle = mock_file()
+            assert handle.write.called
