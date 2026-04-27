@@ -5,6 +5,7 @@
 # - checks out code
 # - sets up Python environment
 # - installs dependencies via requirements.txt
+# - installs pytest as test tool
 # - runs tests via pytest ./scl/test/
 
 name: Unit Tests
@@ -36,6 +37,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Install test tools
+        run: pip install pytest
+
       - name: Run unit tests
         run: pytest ./scl/test/
 
@@ -45,3 +49,4 @@ jobs:
 # - Creating, updating, or reopening a pull request targeting main/master
 # Developers can also manually trigger it via the "Actions" tab if needed.
 # To debug, inspect the "Run unit tests" step logs in the GitHub Actions console.
+# run test via pytest ./scl/test/
