@@ -5,7 +5,7 @@
 # - checks out code
 # - sets up Python environment
 # - installs dependencies via requirements.txt
-# - installs pytest as test tool
+# - installs pytest and pytest-asyncio as test tool
 # - runs tests via pytest ./scl/test/
 
 name: Unit Tests
@@ -38,7 +38,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Install test tools
-        run: pip install pytest
+        run: pip install pytest pytest-asyncio
 
       - name: Run unit tests
         run: pytest ./scl/test/
