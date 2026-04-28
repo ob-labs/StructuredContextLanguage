@@ -121,7 +121,7 @@ def test_execute_pattern_missing(default_instance):
 def test_execute_merging_args(default_instance, mock_span):
     """Runtime args override default search_params."""
     default_instance.search_params = {"path": "/tmp", "output_mode": "count"}
-    default_instance._build_command = MagicMock(return_value=["rg", "pattern", "/other"])
+    default_instance._build_command = MagicMock(return_value=["igrep", "pattern", "/other"])
     default_instance._run_command = MagicMock(return_value="5\n")
 
     result = default_instance.execute({"pattern": "needle", "path": "/other"})
@@ -133,7 +133,7 @@ def test_execute_merging_args(default_instance, mock_span):
 
 def test_execute_success_no_pagination(default_instance, mock_span):
     """Basic execution returns run_command output."""
-    default_instance._build_command = MagicMock(return_value=["rg", "test", "."])
+    default_instance._build_command = MagicMock(return_value=["igrep", "test", "."])
     default_instance._run_command = MagicMock(return_value="file1.py:1:test\nfile2.py:5:test")
     result = default_instance.execute({"pattern": "test"})
     assert result == "file1.py:1:test\nfile2.py:5:test"
@@ -144,7 +144,7 @@ def test_execute_success_no_pagination(default_instance, mock_span):
 
 def test_execute_pagination_head_limit(default_instance):
     """Apply head_limit to output lines."""
-    default_instance._build_command = MagicMock(return_value=["rg", "x", "."])
+    default_instance._build_command = MagicMock(return_value=["igrep", "x", "."])
     default_instance._run_command = MagicMock(return_value="a\nb\nc\nd\n")
     result = default_instance.execute({"pattern": "x", "head_limit": 2})
     assert result == "a\nb"
@@ -152,7 +152,7 @@ def test_execute_pagination_head_limit(default_instance):
 
 def test_execute_pagination_offset(default_instance):
     """Apply offset to output lines."""
-    default_instance._build_command = MagicMock(return_value=["rg", "x", "."])
+    default_instance._build_command = MagicMock(return_value=["igrep", "x", "."])
     default_instance._run_command = MagicMock(return_value="0\n1\n2\n3\n4")
     result = default_instance.execute({"pattern": "x", "offset": 2})
     assert result == "2\n3\n4"
@@ -160,7 +160,7 @@ def test_execute_pagination_offset(default_instance):
 
 def test_execute_pagination_head_limit_and_offset(default_instance):
     """Apply offset then head_limit."""
-    default_instance._build_command = MagicMock(return_value=["rg", "x", "."])
+    default_instance._build_command = MagicMock(return_value=["igrep", "x", "."])
     default_instance._run_command = MagicMock(return_value="line0\nline1\nline2\nline3\nline4")
     result = default_instance.execute({"pattern": "x", "offset": 1, "head_limit": 2})
     assert result == "line1\nline2"
@@ -168,7 +168,7 @@ def test_execute_pagination_head_limit_and_offset(default_instance):
 
 def test_execute_empty_output(default_instance):
     """Empty output remains empty after pagination."""
-    default_instance._build_command = MagicMock(return_value=["rg", "x", "."])
+    default_instance._build_command = MagicMock(return_value=["igrep", "x", "."])
     default_instance._run_command = MagicMock(return_value="")
     result = default_instance.execute({"pattern": "x"})
     assert result == ""
@@ -176,7 +176,7 @@ def test_execute_empty_output(default_instance):
 
 def test_execute_records_exception(mock_span, default_instance):
     """Exception during execution is logged to span and re-raised."""
-    default_instance._build_command = MagicMock(return_value=["rg", "x", "."])
+    default_instance._build_command = MagicMock(return_value=["igrep", "x", "."])
     default_instance._run_command = MagicMock(side_effect=RuntimeError("boom"))
     with pytest.raises(RuntimeError, match="boom"):
         default_instance.execute({"pattern": "x"})
@@ -190,46 +190,54 @@ def test_execute_records_exception(mock_span, default_instance):
 
 def test_build_command_minimal(default_instance):
     """Only pattern and default path."""
-    default_instance._get_grep_binary = MagicMock(return_value="rg")
+    default_instance._get_grep_binary = MagicMock(return_value="igrep")
     cmd = default_instance._build_command({"pattern": "foo"})
-    assert cmd[:1] == ["rg"]
+    assert cmd[:1] == ["igrep"]
     assert cmd[-2:] == ["foo", os.getcwd()]
 
 
 def test_build_command_ignore_case(default_instance):
-    default_instance._get_grep_binary = MagicMock(return_value="rg")
+    default_instance._get_grep_binary = MagicMock(return_value="igrep")
     cmd = default_instance._build_command({"pattern": "foo", "ignore_case": True})
     assert "-i" in cmd
 
 
-def test_build_command_multiline(default_instance):
-    default_instance._get_grep_binary = MagicMock(return_value="rg")
+def test_build_command_multiline_igrep(default_instance):
+    """Multiline mode with igrep adds -U and --multiline-dotall."""
+    default_instance._get_grep_binary = MagicMock(return_value="igrep")
     cmd = default_instance._build_command({"pattern": "foo", "multiline": True})
     assert "-U" in cmd
     assert "--multiline-dotall" in cmd
 
 
+def test_build_command_multiline_grep_raises(default_instance):
+    """Multiline mode with standard grep raises RuntimeError."""
+    default_instance._get_grep_binary = MagicMock(return_value="grep")
+    with pytest.raises(RuntimeError, match="Multiline mode .* not supported by standard grep"):
+        default_instance._build_command({"pattern": "foo", "multiline": True})
+
+
 def test_build_command_output_files_with_matches(default_instance):
-    default_instance._get_grep_binary = MagicMock(return_value="rg")
+    default_instance._get_grep_binary = MagicMock(return_value="igrep")
     cmd = default_instance._build_command({"pattern": "foo", "output_mode": "files_with_matches"})
     assert "-l" in cmd
     assert "-n" not in cmd
 
 
 def test_build_command_output_count(default_instance):
-    default_instance._get_grep_binary = MagicMock(return_value="rg")
+    default_instance._get_grep_binary = MagicMock(return_value="igrep")
     cmd = default_instance._build_command({"pattern": "foo", "output_mode": "count"})
     assert "-c" in cmd
 
 
 def test_build_command_output_content_default_line_numbers(default_instance):
-    default_instance._get_grep_binary = MagicMock(return_value="rg")
+    default_instance._get_grep_binary = MagicMock(return_value="igrep")
     cmd = default_instance._build_command({"pattern": "foo", "output_mode": "content"})
     assert "-n" in cmd
 
 
 def test_build_command_output_content_no_line_numbers(default_instance):
-    default_instance._get_grep_binary = MagicMock(return_value="rg")
+    default_instance._get_grep_binary = MagicMock(return_value="igrep")
     cmd = default_instance._build_command({
         "pattern": "foo",
         "output_mode": "content",
@@ -239,7 +247,7 @@ def test_build_command_output_content_no_line_numbers(default_instance):
 
 
 def test_build_command_context_lines(default_instance):
-    default_instance._get_grep_binary = MagicMock(return_value="rg")
+    default_instance._get_grep_binary = MagicMock(return_value="igrep")
     cmd = default_instance._build_command({
         "pattern": "foo",
         "output_mode": "content",
@@ -252,62 +260,87 @@ def test_build_command_context_lines(default_instance):
     assert cmd[cmd.index("-C") + 1] == "3"
 
 
-def test_build_command_glob_single(default_instance):
-    default_instance._get_grep_binary = MagicMock(return_value="rg")
+def test_build_command_glob_single_igrep(default_instance):
+    """With igrep, glob uses -g per pattern."""
+    default_instance._get_grep_binary = MagicMock(return_value="igrep")
     cmd = default_instance._build_command({"pattern": "foo", "glob": "*.py"})
     assert "-g" in cmd
     idx = cmd.index("-g")
     assert cmd[idx + 1] == "*.py"
 
 
-def test_build_command_glob_brace_expansion(default_instance):
-    # For "*. {js,ts}", _parse_glob returns ['*.', '{js', 'ts}']
-    # so _build_command adds three -g pairs, one per element.
-    default_instance._get_grep_binary = MagicMock(return_value="rg")
+def test_build_command_glob_single_grep(default_instance):
+    """With standard grep, glob uses --include."""
+    default_instance._get_grep_binary = MagicMock(return_value="grep")
+    cmd = default_instance._build_command({"pattern": "foo", "glob": "*.py"})
+    assert "--include" in cmd
+    assert "-g" not in cmd
+    idx = cmd.index("--include")
+    assert cmd[idx + 1] == "*.py"
+
+
+def test_build_command_glob_brace_expansion_igrep(default_instance):
+    """Brace expansion and multiple -g flags with igrep."""
+    default_instance._get_grep_binary = MagicMock(return_value="igrep")
     cmd = default_instance._build_command({"pattern": "foo", "glob": "*. {js,ts}"})
+    # tokens: ['*.', 'js', 'ts'] => three -g occurrences
     assert cmd.count("-g") == 3
     g_values = [cmd[i+1] for i, val in enumerate(cmd) if val == "-g"]
-    # The actual values are the raw tokens from _parse_glob
-    assert g_values == ['*.', '{js', 'ts}']
+    assert g_values == ['*.', 'js', 'ts']
 
 
-def test_build_command_type_filter(default_instance):
-    default_instance._get_grep_binary = MagicMock(return_value="rg")
+def test_build_command_glob_brace_expansion_grep(default_instance):
+    """Brace expansion and multiple --include flags with grep."""
+    default_instance._get_grep_binary = MagicMock(return_value="grep")
+    cmd = default_instance._build_command({"pattern": "foo", "glob": "*. {js,ts}"})
+    assert cmd.count("--include") == 3
+    includes = [cmd[i+1] for i, val in enumerate(cmd) if val == "--include"]
+    assert includes == ['*.', 'js', 'ts']
+
+
+def test_build_command_type_filter_igrep(default_instance):
+    """File type filtering with igrep uses --type."""
+    default_instance._get_grep_binary = MagicMock(return_value="igrep")
     cmd = default_instance._build_command({"pattern": "foo", "type": "python"})
     assert "--type" in cmd
     assert cmd[cmd.index("--type") + 1] == "python"
 
 
-def test_build_command_max_columns(default_instance):
-    default_instance._get_grep_binary = MagicMock(return_value="rg")
-    cmd = default_instance._build_command({"pattern": "foo"})
-    assert "--max-columns" in cmd
-    assert cmd[cmd.index("--max-columns") + 1] == "500"
+def test_build_command_type_filter_grep_raises(default_instance):
+    """File type filtering with standard grep raises RuntimeError."""
+    default_instance._get_grep_binary = MagicMock(return_value="grep")
+    with pytest.raises(RuntimeError, match="File type filtering .* not supported by standard grep"):
+        default_instance._build_command({"pattern": "foo", "type": "python"})
 
 
 def test_build_command_explicit_path(default_instance):
-    default_instance._get_grep_binary = MagicMock(return_value="rg")
+    """Explicit path is appended to command."""
+    default_instance._get_grep_binary = MagicMock(return_value="igrep")
     cmd = default_instance._build_command({"pattern": "foo", "path": "/custom"})
     assert cmd[-1] == "/custom"
+
+
+def test_build_command_path_list(default_instance):
+    """Multiple paths are all appended."""
+    default_instance._get_grep_binary = MagicMock(return_value="igrep")
+    cmd = default_instance._build_command({
+        "pattern": "foo",
+        "path": ["/dir1", "/dir2"]
+    })
+    assert cmd[-2:] == ["/dir1", "/dir2"]
 
 
 # ---------------------------------------------------------------------------
 # Tests for _parse_glob
 # ---------------------------------------------------------------------------
 
-# Adjusted expected outputs to match the current implementation's behavior,
-# which replaces commas with spaces before splitting and does not correctly
-# combine leading ".*" with braces.
-
 @pytest.mark.parametrize("input_glob,expected_list", [
     ("*.py", ["*.py"]),
     ("*.py,*.txt", ["*.py", "*.txt"]),
     ("*.py *.txt", ["*.py", "*.txt"]),
     ("*.py, *.txt", ["*.py", "*.txt"]),
-    # "*. {js,ts}" replaced to "*. {js ts}", split -> ['*.', '{js', 'ts}']
-    ("*. {js,ts}", ["*.", "{js", "ts}"]),
-    # "{js,ts}" -> replace commas -> "{js ts}" split -> ['{js', 'ts}']
-    ("{js,ts}", ["{js", "ts}"]),
+    ("*. {js,ts}", ["*.", "js", "ts"]),
+    ("{js,ts}", ["js", "ts"]),
     ("single", ["single"]),
 ])
 def test_parse_glob(default_instance, input_glob, expected_list):
@@ -316,10 +349,8 @@ def test_parse_glob(default_instance, input_glob, expected_list):
 
 
 def test_parse_glob_complex_mix(default_instance):
-    # "*.py, {css,html}" -> replace ',' -> "*.py  {css html}" split ->
-    # ['*.py', '{css', 'html}']
     result = default_instance._parse_glob("*.py, {css,html}")
-    assert result == ["*.py", "{css", "html}"]
+    assert result == ["*.py", "css", "html"]
 
 
 # ---------------------------------------------------------------------------
@@ -328,23 +359,26 @@ def test_parse_glob_complex_mix(default_instance):
 
 @patch('scl.capabilities.grep.subprocess.run')
 def test_get_grep_binary_igrep_available(mock_run, default_instance):
-    mock_run.side_effect = [MagicMock(returncode=0), MagicMock(returncode=0)]
+    """Preferred binary igrep is found."""
+    mock_run.side_effect = [MagicMock(returncode=0)]
     bin_name = default_instance._get_grep_binary()
     assert bin_name == "igrep"
     assert mock_run.call_args_list[0][0][0] == ["igrep", "--version"]
 
 
 @patch('scl.capabilities.grep.subprocess.run')
-def test_get_grep_binary_fallback_to_rg(mock_run, default_instance):
+def test_get_grep_binary_fallback_to_grep(mock_run, default_instance):
+    """Fall back to grep when igrep not found."""
     mock_run.side_effect = [FileNotFoundError, MagicMock(returncode=0)]
     bin_name = default_instance._get_grep_binary()
-    assert bin_name == "rg"
+    assert bin_name == "grep"
 
 
 @patch('scl.capabilities.grep.subprocess.run')
 def test_get_grep_binary_neither_available(mock_run, default_instance):
+    """Raise FileNotFoundError when neither binary is available."""
     mock_run.side_effect = FileNotFoundError
-    with pytest.raises(FileNotFoundError, match="Neither `igrep` nor `rg` found"):
+    with pytest.raises(FileNotFoundError, match="Neither `igrep` nor standard `grep` found"):
         default_instance._get_grep_binary()
 
 
@@ -371,14 +405,14 @@ def test_is_binary_available_false_not_found(mock_run):
 @patch('scl.capabilities.grep.subprocess.run')
 def test_run_command_success(mock_run, default_instance):
     mock_run.return_value = MagicMock(returncode=0, stdout="output")
-    result = default_instance._run_command(["rg", "test", "."])
+    result = default_instance._run_command(["igrep", "test", "."])
     assert result == "output"
 
 
 @patch('scl.capabilities.grep.subprocess.run')
 def test_run_command_no_match(mock_run, default_instance):
     mock_run.return_value = MagicMock(returncode=1, stdout="")
-    result = default_instance._run_command(["rg", "test", "."])
+    result = default_instance._run_command(["igrep", "test", "."])
     assert result == ""
 
 
@@ -386,14 +420,14 @@ def test_run_command_no_match(mock_run, default_instance):
 def test_run_command_error(mock_run, default_instance):
     mock_run.return_value = MagicMock(returncode=2, stderr="permission denied")
     with pytest.raises(RuntimeError, match="grep failed with code 2"):
-        default_instance._run_command(["rg", "test", "."])
+        default_instance._run_command(["igrep", "test", "."])
 
 
 @patch('scl.capabilities.grep.subprocess.run')
 def test_run_command_binary_not_found(mock_run, default_instance):
     mock_run.side_effect = FileNotFoundError
     with pytest.raises(FileNotFoundError):
-        default_instance._run_command(["rg", "test", "."])
+        default_instance._run_command(["igrep", "test", "."])
 
 
 # ---------------------------------------------------------------------------
@@ -406,33 +440,32 @@ def test_repr(default_instance):
     assert "GrepFunctionCall(name='test_grep'" in rep
     assert "hello" in rep
 
+
 # ---------------------------------------------------------------------------
-# Integration test: real igrep execution on grep.py source
+# Integration test: real grep execution on grep.py source
 # ---------------------------------------------------------------------------
 
 def test_real_grep_on_source_file(default_instance, mock_tracer, mock_meter):
     """
-    真实调用 igrep 搜索文件一 (grep.py) 的内容。
-    要求环境已安装 igrep，该测试不会 mock subprocess。
+    Real grep execution on grep.py source using the standard `grep` binary.
+    Patches `_get_grep_binary` to force `grep` to avoid dependency on igrep.
     """
-    import os
+    with patch.object(default_instance, '_get_grep_binary', return_value='grep'):
+        # Construct absolute path to grep.py (two levels up from test dir)
+        test_dir = os.path.dirname(os.path.abspath(__file__))
+        source_path = os.path.normpath(
+            os.path.join(test_dir, "..", "..", "capabilities", "grep.py")
+        )
 
-    # 构造 grep.py 的绝对路径（从当前测试文件向上两级再进入 capabilities）
-    test_dir = os.path.dirname(os.path.abspath(__file__))
-    source_path = os.path.normpath(
-        os.path.join(test_dir, "..", "..", "capabilities", "grep.py")
-    )
+        pattern = "Grep Function Call Module"  # unique phrase in the docstring
 
-    pattern = "Grep Function Call Module"  # 目标文件文档字符串中的唯一语句
+        result = default_instance.execute({
+            "pattern": pattern,
+            "path": source_path,
+            "output_mode": "content",
+            "line_numbers": False,
+        })
 
-    result = default_instance.execute({
-        "pattern": pattern,
-        "path": source_path,
-        "output_mode": "content",
-        "line_numbers": False,   # 便于断言
-    })
-
-    # 确认 grep 找到了预期内容
-    assert pattern in result, (
-        f"Pattern {pattern!r} not found in output:\n{result}"
-    )
+        assert pattern in result, (
+            f"Pattern {pattern!r} not found in output:\n{result}"
+        )
