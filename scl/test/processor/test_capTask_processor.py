@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch, call
 
 import pytest
 
-# ----------------------------------------------------------------------
+
 # Session‑scoped temporary directory that replaces config.todo_watch_dir
 @pytest.fixture(scope="session")
 def todo_watch_dir(tmp_path_factory):
@@ -29,10 +29,12 @@ def processor_module(todo_watch_dir):
     mock_span = MagicMock()
 
     mock_tracer = MagicMock()
+
     def _decorator_pass_through(span_name):
         def decorator(func):
             return func          # no wrapping – ABC will see a real method
         return decorator
+
     mock_tracer.start_as_current_span = _decorator_pass_through
 
     # meter.create_counter must return a NEW MagicMock each time
@@ -83,6 +85,9 @@ def reset_counter_mocks(processor_module):
         counter = getattr(processor_module, counter_name, None)
         if counter:
             counter.reset_mock()
+            # Also reset the add method, which is a separate child mock
+            if hasattr(counter, 'add'):
+                counter.add.reset_mock()
     processor_module.trace.get_current_span.return_value.reset_mock()
 
 
@@ -148,18 +153,19 @@ class TestProcessItem:
         mock_cap_registry.get_capability.return_value = cap
 
         task = MagicMock(hash="hash1", cap_name="greet", args={"name": "test"})
-        task_file = os.path.join(todo_watch_dir, "hash1")
+        # Important: the code expects <hash>.json
+        task_file = os.path.join(todo_watch_dir, "hash1.json")
         with open(task_file, "w") as f:
             f.write("dummy")
 
         processor._process_item(task)
 
-        assert task.status == "success"
-        dest = os.path.join(processor_module.CAP_COMPLETE_DIR, "hash1")
+        # Success status is "Processed", not "success"
+        assert task.status == "Processed"
+        dest = os.path.join(processor_module.CAP_COMPLETE_DIR, "hash1.json")
         assert os.path.exists(dest)
         assert not os.path.exists(task_file)
 
-        # Each counter is now an independent mock
         processor_module.tasks_processed_counter.add.assert_called_once_with(
             1, {"processor.name": "test_cap"}
         )
@@ -169,7 +175,8 @@ class TestProcessItem:
         processor_module.tasks_failed_counter.add.assert_not_called()
 
         span = processor_module.trace.get_current_span.return_value
-        span.set_attribute.assert_any_call("task.result", "result-ok")
+        # The real code sets "task.result_length", not "task.result"
+        span.set_attribute.assert_any_call("task.result_length", len("result-ok"))
 
     def test_failure_execute_raises(self, processor, processor_module, mock_cap_registry, todo_watch_dir):
         cap = MagicMock()
@@ -177,14 +184,14 @@ class TestProcessItem:
         mock_cap_registry.get_capability.return_value = cap
 
         task = MagicMock(hash="hash2", cap_name="fail", args={})
-        task_file = os.path.join(todo_watch_dir, "hash2")
+        task_file = os.path.join(todo_watch_dir, "hash2.json")
         with open(task_file, "w") as f:
             f.write("data")
 
         processor._process_item(task)
 
         assert task.status == "Error"
-        dest = os.path.join(processor_module.CAP_ERROR_DIR, "hash2")
+        dest = os.path.join(processor_module.CAP_ERROR_DIR, "hash2.json")
         assert os.path.exists(dest)
         assert not os.path.exists(task_file)
 
@@ -202,14 +209,14 @@ class TestProcessItem:
         mock_cap_registry.get_capability.return_value = None
 
         task = MagicMock(hash="hash3", cap_name="unknown", args={})
-        task_file = os.path.join(todo_watch_dir, "hash3")
+        task_file = os.path.join(todo_watch_dir, "hash3.json")
         with open(task_file, "w") as f:
             f.write("data")
 
         processor._process_item(task)
 
         assert task.status == "Error"
-        dest = os.path.join(processor_module.CAP_ERROR_DIR, "hash3")
+        dest = os.path.join(processor_module.CAP_ERROR_DIR, "hash3.json")
         assert os.path.exists(dest)
         assert not os.path.exists(task_file)
 

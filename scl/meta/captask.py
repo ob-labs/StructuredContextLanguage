@@ -1,17 +1,19 @@
 """
-CapTask Module
+File path:
+cap_task.py
 
-Design Goals & Features:
-------------------------
-1. Each CapTask has:
-   - hash: unique identifier for this task instance.
-   - task_hash: identifier of the parent task or workflow this task belongs to.
-   - cap_name: name of the Capability to be invoked.
-   - args: list of arguments to pass to the capability invocation.
-   - approval: a flag if get approval for running, default is True.
-   - status: current status of the CapTask in ["created", "Processed", "Error"]
-2. Support JSON serialization/deserialization for persistence or message passing.
-3. When this class been initialized, it will write down a file to scl.config.todo_watch_dir folder, the file name is hash value.
+Features and design goals
+- Each CapTask has:
+  - hash: unique identifier for this task instance.
+  - task_hash: identifier of the parent task or workflow this task belongs to.
+  - cap_name: name of the Capability to be invoked.
+  - args: list of arguments to pass to the capability invocation.
+  - approval: a flag if get approval for running, default is True.
+  - status: current status of the CapTask in ["created", "Processed", "Error"]
+  - result: 500 lines of full_result.
+  - full_result: the full result of the capability invocation.
+- Support JSON serialization/deserialization for persistence or message passing.
+- When this class been initialized, it will write down a file to scl.config.todo_watch_dir folder, the file name is hash value.
 
 Project Constraints Applied:
 ----------------------------
@@ -26,7 +28,7 @@ import json
 import logging
 import os
 import uuid
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from typing import Any, Dict, List, Optional
 
 # OpenTelemetry imports
@@ -72,6 +74,18 @@ class CapTask:
     """
     Represents a single invocation task for a Capability.
 
+    Attributes:
+        cap_name (str): Name of the capability to invoke.
+        args (List[Any]): Arguments for the capability call.
+        task_hash (Optional[str]): Hash/ID of the parent workflow.
+        hash (Optional[str]): Unique identifier of this task (auto-generated if None).
+        approval (bool): Whether the task is approved for execution (default True).
+        status (str): Current status, one of {"created", "Processed", "Error"}.
+        full_result (str): The complete result/output from capability invocation.
+    
+    Properties:
+        result (str): First 500 lines of full_result.
+    
     Example usage:
         task = CapTask(
             cap_name="send_email",
@@ -79,6 +93,11 @@ class CapTask:
             task_hash="workflow-123",
             approval=True
         )
+        # After the capability runs, store the result
+        task.full_result = "email sent successfully\\n...more details..."
+        print(task.result)          # first 500 lines
+        print(task.full_result)     # entire result
+
         # Update status after processing
         task.set_status("Processed")
 
@@ -89,17 +108,25 @@ class CapTask:
     cap_name: str
     args: List[Any]
     task_hash: Optional[str] = None
-    hash: Optional[str] = None   # Will be auto-generated if not provided
-    approval: bool = True        # Flag indicating if the task is approved for execution
-    status: str = "created"      # Current status; allowed: created, Processed, Error
+    hash: Optional[str] = None          # Auto-generated if not provided
+    approval: bool = True               # Approval flag
+    status: str = "created"             # Current status
+    full_result: str = ""               # Full result of the capability invocation
 
     VALID_STATUSES = {"created", "Processed", "Error"}
+
+    @property
+    def result(self) -> str:
+        """
+        Returns the first 500 lines of the full_result.
+        """
+        lines = self.full_result.splitlines(keepends=True)
+        return "".join(lines[:500])
 
     def __post_init__(self):
         """Auto-generate unique hash if not supplied, set default task_hash, validate status, and write file."""
         with tracer.start_as_current_span("CapTask.__post_init__") as span:
             if self.hash is None:
-                # Use object.__setattr__ because dataclass fields are frozen in spirit
                 object.__setattr__(self, "hash", str(uuid.uuid4()))
                 span.set_attribute("cap_task.hash_generated", True)
             else:
@@ -161,7 +188,6 @@ class CapTask:
             logger.error(f"Failed to write CapTask file for {self.hash}: {e}")
             parent_span.record_exception(e)
             # Do not re-raise; file writing is non-critical for object creation
-            # but we log the error and increment a metric could be added if needed.
 
     @tracer.start_as_current_span("CapTask.set_status")
     def set_status(self, new_status: str) -> None:
@@ -199,6 +225,7 @@ class CapTask:
         with tracer.start_as_current_span("CapTask.to_dict") as span:
             span.set_attribute("cap_task.hash", self.hash)
             data = asdict(self)
+            # Optionally, we could exclude result if desired, but full_result is already included.
             logger.debug(f"Serialized CapTask {self.hash} to dict")
             return data
 
@@ -227,7 +254,7 @@ class CapTask:
 
         Args:
             data: Dictionary containing 'cap_name', 'args', and optionally
-                  'task_hash', 'hash', 'approval', 'status'.
+                  'task_hash', 'hash', 'approval', 'status', 'full_result'.
 
         Returns:
             New CapTask instance.
@@ -249,7 +276,8 @@ class CapTask:
             task_hash=data.get("task_hash"),
             hash=data.get("hash"),
             approval=data.get("approval", True),
-            status=data.get("status", "created")
+            status=data.get("status", "created"),
+            full_result=data.get("full_result", "")
         )
         cap_task_deserialized_counter.add(1, {"cap_name": task.cap_name})
         logger.debug(
@@ -307,17 +335,22 @@ Example usage:
         approval=True
     )
 
-    # 2. Updating task status after processing
+    # 2. Simulate capability execution and store result
+    task.full_result = "Line 1\\nLine 2\\n... possibly thousands of lines ..."
+    # Access first 500 lines
+    preview = task.result
+
+    # 3. Update task status after processing
     task.set_status("Processed")
 
-    # 3. Serializing to JSON for message queuing or storage
+    # 4. Serializing to JSON for message queuing or storage
     json_str = task.to_json()
     print(json_str)
 
-    # 4. Deserializing from JSON (will also write a file to todo_watch_dir)
+    # 5. Deserializing from JSON (will also write a file to todo_watch_dir)
     restored_task = CapTask.from_json(json_str)
 
-    # 5. Creating from a dictionary (e.g., from an API payload)
+    # 6. Creating from a dictionary (e.g., from an API payload)
     data = {
         "cap_name": "run_report",
         "args": ["monthly", 42],
@@ -325,8 +358,9 @@ Example usage:
     }
     task2 = CapTask.from_dict(data)
 
-    # 6. Inspecting the task
+    # 7. Inspecting the task
     print(task2.hash)         # auto-generated UUID
     print(task2.status)       # 'created' (or 'Processed' if set)
     print(task2.approval)     # False
+    print(task2.result)       # '' until full_result is set
 """

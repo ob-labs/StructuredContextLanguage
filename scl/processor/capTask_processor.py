@@ -1,73 +1,39 @@
 """
-This module contains the CapabilityProcessor class, which is responsible for processing CapTask instances.
+CapabilityProcessor Module
+
+Design Goals & Features:
+------------------------
 - Inherits from BaseQueueProcessor for common loop/backoff/status/notify.
-- It as name mapping to Capability.
-- It will consume the CapabilityTaskQueues as queue, and register itself to the CapabilityTaskQueues by name.
-- It use a while true to consume CapTask instance from the queue.
-- If the item is not None, get a Capability instance from it's CapRegistry instance.
-- Invokes Capability's execute method, note: for any item, you can find the file under scl.config.todo_watch_dir folder with it's hash value as file name.
--   If the execute method successed:
--      update item's status to "success".
--      move the file to todo_watch_dir/CapComplete folder.
--   If the execute method raises any exception
--       update item's status to "Error".
--      move the file to todo_watch_dir/CapError folder.
+- Bound to a specific capability name; processes tasks for that name only.
+- Registers itself with a CapabilityTaskQueues instance to consume tasks.
+- Uses an infinite loop (implemented in BaseQueueProcessor) to fetch and process CapTask items.
+- For each CapTask:
+    - Locates the file in scl.config.todo_watch_dir (named <hash>.json).
+    - Obtains the corresponding Capability from a CapRegistry.
+    - Invokes Capability.execute with the task arguments.
+    - On success:
+        - Updates the task's status to "Processed".
+        - Saves the execution result in full_result (and result via its property).
+        - Moves the file to todo_watch_dir/CapComplete/<hash>.json.
+    - On failure (exception):
+        - Updates the task's status to "Error".
+        - Moves the file to todo_watch_dir/CapError/<hash>.json.
 
 Project Constraints:
-- Please relay on otel for tracing, metric, logs.
-- Please design log for info and debug level.
-- Please have example usage as comments after class define, before init function.
-- Just impl necessary functions.
+-------------------
+- OpenTelemetry integrated for tracing, metrics, and structured logging.
+- Logger provides info and debug levels.
+- Dependencies are documented as `pip install` commands, not requirements.txt.
 
-Dependencies (pip install):
-- opentelemetry-api
-- opentelemetry-sdk
-- (optional) scl-coretools   # provides scl.otel, scl.config, scl.meta, scl.queues
-If the scl packages are not installed, the module will use no‑op or mock implementations
-so that the processor can still be tested in isolation.
-
-Example usage:
-
-    from scl.queues.capTaskQueues import CapabilityTaskQueues
-    from scl.meta.captask import CapTask
-    from scl.cap_registry import CapRegistry
-    from scl.processor.capability_processor import CapabilityProcessor  # this module
-
-    # Build registry with a concrete capability
-    class GreetCap(Capability):
-        def execute(self, args_dict: dict):
-            return f"Hello, {args_dict['name']}!"
-
-    cap_registry = CapRegistry()
-    cap_registry.register("greet", GreetCap("greet"))
-
-    # Setup queue and processor
-    queues = CapabilityTaskQueues()
-    processor = CapabilityProcessor(
-        name="greet",
-        queue=queues,
-        cap_registry=cap_registry
-    )
-
-    # The processor automatically registers itself with the queue on __init__.
-    # It can also be done explicitly via processor.register_with_queue() if needed.
-
-    # Start processing in background
-    processor.start()
-
-    # Add a task to the queue (the queue will notify the processor)
-    task = CapTask(cap_name="greet", args={"name": "World"}, hash="a1b2c3")
-    queues.add(task)
-
-    # ... later
-    processor.stop()
+Installation:
+    pip install opentelemetry-api opentelemetry-sdk
+    (optional) pip install scl-coretools
 """
-
 import logging
 import os
 import shutil
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Any
 
 from opentelemetry import trace
 from scl.otel.otel import tracer, meter
@@ -89,14 +55,14 @@ for d in [TODO_WATCH_DIR, CAP_COMPLETE_DIR, CAP_ERROR_DIR]:
 logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------------------------
-# Common metrics (shared across processors)
+# Common metrics
 tasks_processed_counter = meter.create_counter(
     "capability_processor.tasks_processed",
     description="Total CapTask instances processed"
 )
 tasks_succeeded_counter = meter.create_counter(
     "capability_processor.tasks_succeeded",
-    description="Tasks that completed successfully"
+    description="Tasks that completed successfully (status set to Processed)"
 )
 tasks_failed_counter = meter.create_counter(
     "capability_processor.tasks_failed",
@@ -107,13 +73,14 @@ tasks_failed_counter = meter.create_counter(
 class CapabilityProcessor(BaseQueueProcessor):
     """
     Processes CapTask instances for a specific capability name.
-    Subscribes to the CapabilityTaskQueues and executes the corresponding Capability.
-    For usage examples, see the bottom of this file.
+
+    Inherits the run loop, backoff, and graceful shutdown from BaseQueueProcessor.
+    Full usage examples are provided at the bottom of the file.
     """
 
-    # Example usage (abbreviated, see full version at end of file):
-    # processor = CapabilityProcessor(name="greet", queue=queues, cap_registry=reg)
-    # processor.start()
+    # Abbreviated usage (see bottom for full example):
+    #   processor = CapabilityProcessor(name="greet", queue=queues, cap_registry=reg)
+    #   processor.start()
 
     def __init__(
         self,
@@ -125,7 +92,7 @@ class CapabilityProcessor(BaseQueueProcessor):
         Args:
             name: The capability name this processor handles.
             queue: CapabilityTaskQueues instance to consume tasks from.
-            cap_registry: Object with a `get_capability(name: str) -> Capability` method.
+            cap_registry: Object with a get_capability(name: str) -> Capability method.
         """
         super().__init__(name=name, logger_name=__name__)
         self.queue = queue
@@ -137,12 +104,11 @@ class CapabilityProcessor(BaseQueueProcessor):
 
     def register_with_queue(self):
         """Register processor and its notifier with the queue."""
-        # If the queue supports explicit processor registration
         try:
             self.queue.register_processor(self.name, self)
         except AttributeError:
             logger.debug("Queue does not support register_processor; ignoring.")
-        # Always register a notifier so the queue can wake this processor
+
         self.queue.register_notifier(self.name, lambda name, task: self.notify())
         logger.debug("Processor '%s' registered with queue", self.name)
 
@@ -178,7 +144,11 @@ class CapabilityProcessor(BaseQueueProcessor):
     @tracer.start_as_current_span("CapabilityProcessor._process_item")
     def _process_item(self, item: CapTask) -> None:
         """
-        Process a single CapTask: locate file, invoke capability, move on success/failure.
+        Process a single CapTask:
+        1. Locate its file (<hash>.json) in the watch directory.
+        2. Retrieve the capability from the registry.
+        3. Execute and store result / handle errors.
+        4. Move the file to the appropriate completion/error directory.
         """
         span = trace.get_current_span()
         span.set_attribute("processor.name", self.name)
@@ -186,7 +156,8 @@ class CapabilityProcessor(BaseQueueProcessor):
         span.set_attribute("task.cap_name", item.cap_name)
         span.set_attribute("task.args_count", len(item.args))
 
-        task_file = os.path.join(TODO_WATCH_DIR, item.hash)
+        # Filename matches the pattern written by CapTask.__post_init__
+        task_file = os.path.join(TODO_WATCH_DIR, f"{item.hash}.json")
         logger.debug("Processing CapTask %s for '%s'", item.hash, self.name)
 
         try:
@@ -201,23 +172,35 @@ class CapabilityProcessor(BaseQueueProcessor):
 
             # Execute the capability (business logic)
             result = capability.execute(item.args)
-            logger.debug("Capability executed for task %s, result: %s", item.hash, result)
+            result_str = str(result) if result is not None else ""
+            logger.debug("Capability executed for task %s, result length: %d", item.hash, len(result_str))
 
-            # Success path
-            item.status = "success"
-            self._safe_move(task_file, os.path.join(CAP_COMPLETE_DIR, item.hash), "success")
+            # Success path: update status and store result
+            # Note: CapTask uses "Processed" for successful completion, not "success"
+            item.status = "Processed"
+            item.full_result = result_str
+
+            # Move the file to CapComplete directory
+            dest_file = os.path.join(CAP_COMPLETE_DIR, f"{item.hash}.json")
+            self._safe_move(task_file, dest_file, "success")
+
             logger.info("Task %s completed successfully", item.hash)
+            span.set_attribute("task.result_length", len(result_str))
+
             tasks_processed_counter.add(1, {"processor.name": self.name})
             tasks_succeeded_counter.add(1, {"processor.name": self.name})
-            span.set_attribute("task.result", str(result))
 
         except Exception as e:
             # Failure path
             item.status = "Error"
-            self._safe_move(task_file, os.path.join(CAP_ERROR_DIR, item.hash), "error")
+            item.full_result = ""
+            dest_file = os.path.join(CAP_ERROR_DIR, f"{item.hash}.json")
+            self._safe_move(task_file, dest_file, "error")
+
             logger.error("Task %s failed: %s", item.hash, e, exc_info=True)
             span.record_exception(e)
             span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
+
             tasks_processed_counter.add(1, {"processor.name": self.name})
             tasks_failed_counter.add(1, {"processor.name": self.name})
 
@@ -242,9 +225,50 @@ class CapabilityProcessor(BaseQueueProcessor):
 # - Configuration of backoff/idle thresholds via config.todo_watch_dir settings.
 # - Worker pool support (multiple concurrent processors per capability).
 # - File locking to avoid race conditions when moving task files (especially in multi‑process).
-# - Current scl imports are assumed to be available; no try/except fallback is kept as per the
-#   open-source spirit – users should install the full scl-coretools package or adapt the
-#   imports to their own structure.
 
 # ----------------------------------------------------------------------
-# Example usage (place at bottom as requested by project convention)
+# Example usage
+# =============
+"""
+Example usage (how other parts of the system invoke/reference this module):
+
+    from scl.queue.capTaskQueues import CapabilityTaskQueues
+    from scl.meta.captask import CapTask
+    from scl.cap_registry import CapRegistry
+    from scl.processor.capability_processor import CapabilityProcessor  # this module
+    from scl.meta.capability import Capability
+
+    # 1. Define a concrete capability
+    class GreetCap(Capability):
+        def execute(self, args):
+            # CapTask passes args as a list, so we unpack accordingly
+            name = args[0] if args else "stranger"
+            return f"Hello, {name}!"
+
+    # 2. Register it
+    cap_registry = CapRegistry()
+    cap_registry.register("greet", GreetCap("greet"))
+
+    # 3. Create the queue and processor
+    queues = CapabilityTaskQueues()
+    processor = CapabilityProcessor(
+        name="greet",
+        queue=queues,
+        cap_registry=cap_registry
+    )
+
+    # 4. Start processing in a background thread
+    processor.start()
+
+    # 5. Add a task (the processor will pick it up automatically)
+    task = CapTask(
+        cap_name="greet",
+        args=["World"],            # must be a list
+        task_hash="workflow-001",
+        approval=True
+    )
+    queues.add(task)
+
+    # 6. (Optional) Stop the processor gracefully
+    processor.stop()
+"""
