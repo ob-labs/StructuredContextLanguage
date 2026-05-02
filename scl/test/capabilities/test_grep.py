@@ -62,7 +62,7 @@ def default_instance(mock_tracer, mock_meter, mock_capability_init):
         llm_description="llm desc"
     )
     # Manually set attributes that Capability.__init__ would normally set
-    inst._name = "test_grep"
+    inst.name = "test_grep"          # Fix: use inst.name instead of inst._name
     inst._description = "test desc"
     inst._type = "grep_function_call"
     inst._original_body = "original"
@@ -84,7 +84,7 @@ def instance_with_params(mock_tracer, mock_meter, mock_capability_init):
         original_body="original",
         search_params=search_params
     )
-    inst._name = "test_grep"
+    inst.name = "test_grep"          # Fix: use inst.name instead of inst._name
     inst._description = "test desc"
     inst._type = "grep_function_call"
     inst._original_body = "original"

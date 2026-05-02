@@ -1,73 +1,74 @@
-# Structured Context Language
+# Structured Context Language (SCL)
 
-## Overview
-People are familiar with SQL (Structured Query Language), which is used to interact with databases. Today, as we face Large Language Models (LLMs), the focus is shifting from prompt engineering to context engineering.
+## Vision
 
-In this repository, we aim to build a Structured Context Language (SCL) to occupy a niche analogous to SQL, drawing inspiration from context engineering practices.
+Everyone is familiar with SQL for interacting with databases. In the era of large language models, our focus is shifting from prompt engineering to context engineering.
 
-We hope that through this effort, we can distill a middleware solution. This middleware would provide a standard interface for AI agents, much like Hibernate serves as a standard ORM interface for Java applications.
+In this project, we aim to build a Structured Context Language (SCL), drawing on the practices of context engineering to occupy a niche similar to that of SQL.
+
+Through this practice, we hope to distill a middleware layer. This middleware will provide a standardized interface for agents, playing a role analogous to Hibernate for Java applications.
 
 ## Deconstructing SCL
 
-If we consider prompts as a query language for Large Language Models (LLM), then context engineering is undoubtedly an implementation of this query language. We can deconstruct context engineering along three independent dimensions:
+If we treat a prompt as a query language for large language models (LLMs), then context engineering is certainly one implementation of that query language. We can deconstruct context engineering along three independent dimensions:
 
-- Business Content: Specific instructions for particular prompts and scenarios.
-- Tool Invocation: Various tools the LLM can use to obtain additional external data.
-- Memory Management: In multi-turn conversation scenarios, determining which historical content is relevant to the current query.
+- **Business content**: Concrete instructions tailored to specific prompts and scenarios.
+- **Tool calling**: Various tools available to the LLM to fetch additional external data.
+- **Memory management**: In multi-turn conversations, deciding which historical content is relevant to the current query.
 
-> We can view tool invocation as a spatial expansion of information and memory management as an expansion of information along the temporal dimension.
+> We can view tool calling as a spatial expansion of information, and memory management as a temporal expansion of information.
 
-Considering that in engineering practice, we can implement interactions for memory management through tool invocation, the extended querying of information within context engineering can therefore be accomplished using a standardized interface and further summarized into a standardized workflow.
+In engineering practice, we can manage memory through tool calls. Therefore, within context engineering, the expansion of information can be accomplished via a standardized interface, which can be further distilled into a standardized workflow.
 
-Inspired by the progressive loading mechanism of Claude Skill, we have also observed that autonomous selection of tools by the LLM can be achieved through progressive loading across different tools. Unlike stored procedures in SQL, which are defined and explicitly called for execution, progressive loading provides an additional layer of autonomy.
+Inspired by the progressive loading mechanism of Claude Skills, we also see that between different tools, progressive loading can allow the model to autonomously select tools. Unlike stored procedures that are explicitly defined and called in SQL, this provides extra autonomy through progressive loading.
 
-## Use case
-> The Autonomy Slider —— Reference Karpathy's speech on Software 3.0. Show me the diff in vivid.
+## SCL Agent Loop: A Unified Agent Runtime
 
-```
-Configurable + Autonomy by LLM via feedback control
-Autonomy by LLM via feedback control(metric or history)
-Autonomy by LLM
-Configurable
-HardCode
-```
+Building on the above ideas, SCL provides a standardized agent loop as the runtime middleware for context engineering. It unifies the processing of these three dimensions into an event-driven execution model.
 
-- [ ] Should we make a middleware just input as prompt and output as result?(Autonomy)
-- [ ] We provides workflow and let people able to config it.(Configurable)
-- [ ] We provides sdk let people implements their own.(Hardcode)
+### Design Principles
 
-- [x] Obversbility —— otel.
-> 
-```
-docker run -p 8000:8000 -p 4317:4317 -p 4318:4318 ghcr.io/ctrlspice/otel-desktop-viewer:latest-amd64
-export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4317"
-export OTEL_TRACES_EXPORTER="otlp"
-export OTEL_EXPORTER_OTLP_PROTOCOL="grpc"
-```
+- **Minimalist YOLO Mode**  
+  No built-in TODO lists, planning, sub-agents, or background bash processes. Developers externalize state through files, compose tools through bash, and implement skill execution by spawning new tasks. We want the framework to do one thing——run an agent——and give the user full control and observability.
 
-- [ ] Function selction.
-   - [x] "Progressive loading" base on RAG. (Autonomy)
-   - [ ] Hard code memory tool invoke. (Autonomy or defualt? tbd)
-   - [x] Hardcode control by human, as index hint for SQL.
+- **Unified Provider Interface**  
+  A single API supporting Anthropic, OpenAI, Google, xAI, Groq, Cerebras, OpenRouter, and any OpenAI-compatible endpoint. Provides streaming, tool calls with TypeBox schema validation, reasoning/thinking support, seamless cross-provider context handoff, and token and cost tracking.
 
-- [ ] File format Autonomy, took PDF format as example.
-    - [ ] Context auto into markdown.(Autonomy)
-    - [ ] Context auto embedding for RAG.(Autonomy)
-    - [ ] Or Hardcode control by human outside our process.
+- **Tool Registration and Selection**  
+  Built-in tool registry that maintains tool metadata and descriptions. The agent uses a RAG-based mechanism to progressively load available tools, injecting only the relevant tool definitions into the context when needed. This avoids context bloat from full tool descriptions and preserves model autonomy while respecting progressive loading.
 
-- [ ] Content Autonomy.
-    - [ ] RAG support by default.(Autonomy)
-    - [ ] Hard code as input prompt content.(Hardcode control by human)
-```
-for EMBEDDING service, using siliconflow fow now as poc
-export EMBEDDING_API_KEY=<your_siliconflow_api_key>
-```
+- **Pluggable Content Compression**  
+  A hot-swappable interface for content compression strategies. During long conversations, a customizable compressor can distill historical messages to reduce token consumption while retaining critical information, improving stability for long-running agents.
 
-```
-docker run -d --name pgvector -e POSTGRES_PASSWORD=postgres -e POSTGRES_USER=postgres -e POSTGRES_DB=postgres -p 5432:5432 ankane/pgvector:v0.5.1
-``
+- **Prompt Templates**  
+  Structured template support for business content, facilitating reuse, version management, and team collaboration. Templates can incorporate proven prompt patterns from context engineering practice.
 
-## todo
-Article/Blog
-Investigating how to reuse powermom?
-Find some agent bench mark for testing.——Mind2Web or WebArena？
+- **Multiple Runtime Forms**  
+  - **RESTful (containerized)** — Deployed as a service, providing API access.  
+  - **Local TUI** — Interactive terminal usage with slash commands and session management.  
+  - **Library** — Directly imported for secondary development and deep integration.
+
+- **Observability**  
+  Transparent event streaming across the entire workflow: tool call parameters and results, every incremental model output, and internal state changes are all traceable. This is essential for debugging, evaluation, and building trust.
+
+- **Built-in Toolset**  
+  Out-of-the-box tools covering common coding and operations tasks:
+  - File read/write
+  - Search (grep, find)
+  - Bash
+  - Git
+  - Create cron jobs
+  - Other tools available for function call branching
+
+  Tools can be extended through the registration mechanism, supporting both native implementations and CLI-wrapped commands.
+
+### How It Reflects SCL’s Philosophy
+
+- **Unified Information Expansion**  
+  Both tool calling (spatial expansion) and memory management (temporal expansion) are handled within the agent loop through the same standardized tool interface. Memory management is no longer a special internal mechanism; it is invoked, recorded, and observed like any other tool.
+
+- **Progressive Loading Engineered**  
+  The RAG-based tool selection extends the progressive loading concept from “skill files” to all tools. The model first understands the need, then fetches tool descriptions on demand, and autonomously decides which resources to use. This balances context efficiency with autonomy.
+
+- **Middleware Positioning**  
+  Just as Hibernate provides a standard abstraction for persistence in Java applications, the SCL Agent Loop aims to provide a standardized interface for context management in agent applications. It encapsulates provider differences, tool execution, compression strategies, and runtime modes, allowing developers to focus on business prompts and task-flow design.

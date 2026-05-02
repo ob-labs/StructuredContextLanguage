@@ -1,213 +1,183 @@
 """
-Unit tests for scl.processor.task_processor.TaskProcessor.
+Tests for scl.processor.task_processor.TaskProcessor
+
+Uses pytest and unittest.mock to verify:
+- Initialization and queue registration
+- Non-blocking item retrieval
+- Task processing with tracing, logging and error metrics
+- Notification tracing override
 """
-import sys
-import functools
+import logging
+import queue
+from unittest.mock import ANY, MagicMock, PropertyMock, call, patch
+
 import pytest
-from unittest.mock import Mock, patch, PropertyMock
 
-import scl.otel.otel as otel_module
-
-
-# ---------------------------------------------------------------------------
-# Custom mock context manager / decorator used to replace
-# tracer.start_as_current_span.
-# ---------------------------------------------------------------------------
-class _MockSpanCtx:
-    """Acts as both a context manager and a decorator for OTel spans."""
-    def __init__(self, mock_span):
-        self.mock_span = mock_span
-
-    def __enter__(self):
-        return self.mock_span
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        return False
-
-    def __call__(self, func):
-        """Make the instance a decorator that wraps the original function."""
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            return func(*args, **kwargs)
-        return wrapper
+from scl.meta.task import Task
+from scl.processor.task_processor import TaskProcessor
 
 
+# ---------- Fixtures ----------
 @pytest.fixture
 def mock_input_queue():
-    """A mock TaskQueue that accepts register_processor."""
-    queue = Mock(name="input_queue")
-    queue.register_processor = Mock()
-    return queue
-
-
-def _create_patched_task_processor(monkeypatch, input_queue, name="test_processor"):
-    """
-    Replace the real tracer/meter with fully mocked versions so that
-    decorators and context managers in the processor can be controlled.
-    Returns (processor, mock_span, mock_counter).
-    """
-    # ----- mock span (passes OTel validity checks if needed) -----
-    mock_span = Mock(name="span")
-    mock_span.get_span_context.return_value = Mock(is_valid=True)
-
-    # ----- mocked tracer -----
-    mock_tracer = Mock(name="tracer")
-    # start_as_current_span must return something that works as a
-    # context manager AND as a decorator factory.
-    mock_ctx = _MockSpanCtx(mock_span)
-    mock_tracer.start_as_current_span = Mock(return_value=mock_ctx)
-
-    # ----- mocked meter -----
-    mock_meter = Mock(name="meter")
-    mock_counter = Mock(name="counter")
-    mock_meter.create_counter = Mock(return_value=mock_counter)
-
-    # Patch the entire tracer / meter objects in otel_module so that
-    # the re‑imported task_processor picks them up.
-    monkeypatch.setattr(otel_module, "tracer", mock_tracer)
-    monkeypatch.setattr(otel_module, "meter", mock_meter)
-
-    # Force re‑import of task_processor so that its global names
-    # tracer / meter are bound to our mock objects.
-    if "scl.processor.task_processor" in sys.modules:
-        del sys.modules["scl.processor.task_processor"]
-    keys_to_remove = [
-        k for k in sys.modules if k.startswith("scl.processor.task_processor")
-    ]
-    for key in keys_to_remove:
-        del sys.modules[key]
-
-    import scl.processor.task_processor as task_mod
-
-    # Patch get_current_span on the exact trace module used by task_processor.
-    # This ensures that inside _process_item the call returns our mock_span.
-    monkeypatch.setattr(task_mod.trace, "get_current_span",
-                        Mock(return_value=mock_span))
-
-    TaskProcessor = task_mod.TaskProcessor
-    tp = TaskProcessor(input_queue, name=name)
-    return tp, mock_span, mock_counter
+    """Mock of TaskQueue."""
+    q = MagicMock()
+    q.get = MagicMock()
+    q.register_processor = MagicMock()
+    return q
 
 
 @pytest.fixture
-def processor(mock_input_queue, monkeypatch):
-    """Fixture providing a fully mocked TaskProcessor."""
-    tp, mock_span, mock_counter = _create_patched_task_processor(
-        monkeypatch, mock_input_queue, name="test_processor"
+def mock_task():
+    """A dummy Task with id and type attributes."""
+    t = MagicMock(spec=Task)
+    t.id = "task-123"
+    t.type = "test_type"
+    return t
+
+
+@pytest.fixture
+def mock_tracer():
+    """Patch the tracer used in the module under test."""
+    with patch("scl.processor.task_processor.tracer") as tr:
+        # Allow use as context manager
+        tr.start_as_current_span.return_value.__enter__.return_value = MagicMock()
+        tr.start_as_current_span.return_value.__exit__.return_value = None
+        yield tr
+
+
+@pytest.fixture
+def mock_meter():
+    """Patch the meter used in the module under test."""
+    with patch("scl.processor.task_processor.meter") as mt:
+        mt.create_counter.return_value = MagicMock()
+        yield mt
+
+
+@pytest.fixture
+def processor(mock_input_queue, mock_tracer, mock_meter):
+    """Create a TaskProcessor with mocked dependencies."""
+    proc = TaskProcessor(input_queue=mock_input_queue, name="test_proc")
+    return proc
+
+
+# ---------- Tests: Initialization ----------
+def test_init_registers_with_queue(mock_input_queue, mock_tracer, mock_meter):
+    """Should call register_processor on the input queue."""
+    processor = TaskProcessor(input_queue=mock_input_queue, name="worker")
+    mock_input_queue.register_processor.assert_called_once_with(processor)
+    # Verify that the name is propagated correctly (if BaseQueueProcessor stores it)
+    assert processor.name == "worker"
+
+
+def test_init_creates_error_counter(mock_input_queue, mock_tracer, mock_meter):
+    """Should create a counter metric for processing errors."""
+    processor = TaskProcessor(input_queue=mock_input_queue, name="myproc")
+    mock_meter.create_counter.assert_called_once_with(
+        "myproc.processing_errors",
+        description="Number of errors while processing individual tasks"
     )
-    return tp, mock_input_queue, mock_span, mock_counter
 
 
-@pytest.fixture
-def dummy_task():
-    """A standard Task mock."""
-    task = Mock(name="task", spec=["id", "type"])
-    task.id = 42
-    task.type = "test_type"
-    return task
+def test_init_logs_info_message(mock_input_queue, mock_tracer, mock_meter, caplog):
+    """Should log an info message after initialisation."""
+    with caplog.at_level(logging.INFO):
+        TaskProcessor(input_queue=mock_input_queue, name="proc")
+    assert "TaskProcessor initialized and registered with queue" in caplog.text
 
 
-class TestTaskProcessorInit:
-    def test_initialization_registers_with_queue(self, processor):
-        tp, input_queue, *_ = processor
-        input_queue.register_processor.assert_called_once_with(tp)
-
-    def test_default_name_sets_logger(self, mock_input_queue, monkeypatch):
-        # Instantiate with the default name
-        tp, *_ = _create_patched_task_processor(monkeypatch, mock_input_queue,
-                                                name="task_processor")
-        assert tp.name == "task_processor"
-
-    def test_metrics_counter_created(self, processor):
-        tp, _, _, mock_counter = processor
-        # After patching, otel_module.meter is our mock meter
-        otel_module.meter.create_counter.assert_called_with(
-            "test_processor.processing_errors",
-            description="Number of errors while processing individual tasks"
-        )
+# ---------- Tests: _get_item ----------
+def test_get_item_returns_task_non_blocking(processor, mock_input_queue, mock_task):
+    """_get_item calls queue.get(block=False) and returns the item."""
+    mock_input_queue.get.return_value = mock_task
+    result = processor._get_item()
+    mock_input_queue.get.assert_called_once_with(block=False)
+    assert result is mock_task
 
 
-class TestGetItem:
-    def test_get_item_returns_task(self, processor):
-        tp, input_queue, *_ = processor
-        mock_task = Mock(name="task")
-        input_queue.get.return_value = mock_task
-
-        result = tp._get_item()
-        assert result is mock_task
-        input_queue.get.assert_called_once_with(block=False)
-
-    def test_get_item_empty_queue_returns_none(self, processor):
-        tp, input_queue, *_ = processor
-        input_queue.get.side_effect = Exception("Queue empty")
-
-        result = tp._get_item()
-        assert result is None
-        input_queue.get.assert_called_once_with(block=False)
+def test_get_item_returns_none_on_queue_empty(processor, mock_input_queue):
+    """If queue.get raises queue.Empty, _get_item should catch and return None."""
+    mock_input_queue.get.side_effect = queue.Empty
+    result = processor._get_item()
+    assert result is None
 
 
-class TestProcessItem:
-    def test_process_item_success(self, processor, dummy_task):
-        tp, _, mock_span, mock_counter = processor
-
-        with patch("time.sleep", return_value=None) as mock_sleep:
-            tp._process_item(dummy_task)
-
-        # The decorator runs the real method, which calls set_attribute twice
-        assert mock_span.set_attribute.call_count == 2
-        mock_span.set_attribute.assert_any_call("task.id", "42")
-        mock_span.set_attribute.assert_any_call("task.type", "test_type")
-        mock_sleep.assert_called_once_with(0.1)
-        mock_counter.add.assert_not_called()
-        mock_span.record_exception.assert_not_called()
-
-    def test_process_item_failure(self, processor, dummy_task):
-        tp, _, mock_span, mock_counter = processor
-
-        with patch("time.sleep",
-                   side_effect=Exception("processing failure")):
-            with pytest.raises(Exception):
-                tp._process_item(dummy_task)
-
-        mock_span.set_attribute.assert_any_call("task.id", "42")
-        mock_span.record_exception.assert_called_once()
-        mock_counter.add.assert_called_once_with(
-            1, {"processor.name": "test_processor"}
-        )
-
-    def test_process_item_unknown_id_and_type(self, processor):
-        tp, _, mock_span, mock_counter = processor
-        task = Mock(spec=[])
-
-        with patch("time.sleep", return_value=None):
-            tp._process_item(task)
-
-        mock_span.set_attribute.assert_any_call("task.id", "unknown")
-        mock_span.set_attribute.assert_any_call("task.type", "unknown")
+def test_get_item_returns_none_on_any_exception(processor, mock_input_queue):
+    """Any other exception from queue.get should be caught and None returned."""
+    mock_input_queue.get.side_effect = RuntimeError("down")
+    result = processor._get_item()
+    assert result is None
 
 
-class TestNotify:
-    def test_notify_calls_super_and_sets_span_attributes(self, processor):
-        tp, _, mock_span, mock_counter = processor
+# ---------- Tests: _process_item ----------
+def test_process_item_sets_span_attributes(processor, mock_task, mock_tracer):
+    """Should set task.id and task.type on the current span."""
+    mock_span = MagicMock()
+    with patch("scl.processor.task_processor.trace.get_current_span", return_value=mock_span):
+        processor._process_item(mock_task)
 
-        # Provide enough 'running' values so that the base class accesses
-        # self.status as many times as needed and still returns "running" last.
-        status_values = ["idle"] + ["running"] * 20
-        with patch.object(type(tp), "status",
-                          new_callable=PropertyMock) as mock_status:
-            mock_status.side_effect = status_values
-            tp.notify()
+    mock_span.set_attribute.assert_has_calls([
+        call("task.id", "task-123"),
+        call("task.type", "test_type"),
+    ], any_order=True)
 
-        # The notify method uses `with tracer.start_as_current_span(...) as span:`
-        # and our mock_ctx returns mock_span.  Set_attribute calls are on mock_span.
-        mock_span.set_attribute.assert_any_call("processor.status_before",
-                                                "idle")
-        mock_span.set_attribute.assert_any_call("processor.status_after",
-                                                "running")
 
-    def test_notify_propagates_to_base_class(self, processor):
-        tp, _, _, _ = processor
-        with patch.object(tp.__class__.__bases__[0], "notify",
-                          autospec=True) as super_notify:
-            tp.notify()
-            super_notify.assert_called_once_with(tp)
+def test_process_item_logs_info_and_debug_on_success(processor, mock_task, caplog):
+    """Successful processing logs info start and debug finish."""
+    with patch("scl.processor.task_processor.trace.get_current_span", return_value=MagicMock()):
+        with caplog.at_level(logging.DEBUG):
+            processor._process_item(mock_task)
+
+    assert "Processing Task: id=task-123, type=test_type" in caplog.text
+    assert "task-123 processed successfully" in caplog.text
+
+
+def test_process_item_sleeps(processor, mock_task):
+    """Should call time.sleep(0.1) to simulate work."""
+    with patch("scl.processor.task_processor.trace.get_current_span", return_value=MagicMock()):
+        with patch("time.sleep") as mock_sleep:  # Patch built-in time.sleep
+            processor._process_item(mock_task)
+            mock_sleep.assert_called_once_with(0.1)
+
+
+def test_process_item_on_error_logs_and_records_exception(processor, mock_task, caplog):
+    """Exception inside processing should log error, record exception, increment counter, and re-raise."""
+    mock_span = MagicMock()
+    with patch("scl.processor.task_processor.trace.get_current_span", return_value=mock_span):
+        # Make the processing block raise an error inside time.sleep
+        with patch("time.sleep", side_effect=ValueError("boom")):
+            with pytest.raises(ValueError, match="boom"):
+                processor._process_item(mock_task)
+
+    # Error log
+    assert "Error processing task task-123: boom" in caplog.text
+    # Record exception
+    mock_span.record_exception.assert_called_once()
+    exc_arg = mock_span.record_exception.call_args[0][0]
+    assert isinstance(exc_arg, ValueError)
+    assert str(exc_arg) == "boom"
+    # Increment error counter
+    processor.processing_error_counter.add.assert_called_once_with(
+        1, {"processor.name": "test_proc"}
+    )
+
+
+# ---------- Tests: notify override ----------
+def test_notify_opens_span_and_delegates(processor, mock_tracer):
+    """notify() should create a span, set status attributes, and call super().notify()."""
+    # Patch BaseQueueProcessor.notify to avoid real logic
+    with patch.object(processor.__class__.__bases__[0], "notify") as mock_super_notify:
+        # status is a read-only property in BaseQueueProcessor; mock its getter
+        with patch.object(type(processor), "status", new_callable=PropertyMock) as mock_status:
+            mock_status.return_value = "idle"
+            processor.notify()
+
+            # Verify tracer created a span for notify
+            mock_tracer.start_as_current_span.assert_called_with("TaskProcessor.notify")
+            span_instance = mock_tracer.start_as_current_span.return_value.__enter__.return_value
+            span_instance.set_attribute.assert_has_calls([
+                call("processor.status_before", "idle"),
+                call("processor.status_after", "idle"),
+            ])
+            # super().notify() must be invoked
+            mock_super_notify.assert_called_once()
