@@ -28,10 +28,17 @@
 		- [ ] 支持调试模式（要有个调试框架，最大化RAG三类查询的平衡点）
 			- [ ] 其他非预设工具支持——商业化服务
 	- [ ] 案例/论文
-		- [ ] 找一个function call，rag能力测试集合，看看rag能多大程度选对（渐进式加载）
-		- [ ] 直接跑Qwen能有多少正确率
-		- [ ] 直接跑RAG能有多少正确率（最大化RAG本身匹配的能力）
-		- [ ] 通过引入历史记录能有多少正确率
+		- [ ] [目标测试集合](https://gorilla.cs.berkeley.edu/blogs/15_bfcl_v4_web_search.html)
+		- [ ] RAG + 模型组合
+			- [ ] BM25 + DeepSeek v4
+			- [ ] Qwen embedding + Qwen跑目标测试集合
+		- [ ] 测试的项目
+			- [ ] RAG本身能选对不？
+			- [ ] 基于历史记录能有多少改善
+			- [ ] 基于RAG和历史记录
+		- [ ] 指标
+			- [ ] 正确率
+			- [ ] 能节约多少Token（token在对话中以及tool传递的数量）
 
 ### Describe the solution you'd like
 

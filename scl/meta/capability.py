@@ -24,7 +24,7 @@ from opentelemetry import trace
 from scl.otel.otel import tracer, meter  # Assuming this is the correct import path
 
 # External embedding function (behavior: performs embedding operation)
-from scl.embeddings.impl import embed
+from scl.embeddings.cached_embedding import embed
 
 # Setup logger
 logger = logging.getLogger(__name__)

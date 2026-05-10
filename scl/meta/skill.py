@@ -4,7 +4,7 @@
 ### support tool call loop
 import json
 from typing import Dict, Optional
-from scl.embeddings.impl import embed
+from scl.embeddings.cached_embedding import embed
 from scl.meta.skills_ref.parser import SkillProperties
 from scl.meta.capability import Capability
 
