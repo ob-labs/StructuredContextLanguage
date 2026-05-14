@@ -120,6 +120,11 @@ class fsstore(StoreBase):
         ## having history in FS may too huge, skip for now.
         ## otherwise have a in memory db with size limited maybe an option.
         return
+
+    def clean_history(self):
+        ## having history in FS may too huge, skip for now.
+        ## otherwise have a in memory db with size limited maybe an option.
+        return
     
     def cosine_similarity(self, vec1, vec2):
         """

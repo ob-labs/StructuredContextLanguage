@@ -365,3 +365,18 @@ class PgVectorStore(StoreBase):
         except Exception as e:
             logging.info(f"根据历史记录查询函数失败: {e}")
             return {}
+
+    @tracer.start_as_current_span("clean_history")
+    def clean_history(self):
+        try:
+            cursor = self.conn.cursor()
+            delete_sql = """
+            DELETE FROM capabilities_invoked_history;
+            """
+            cursor.execute(delete_sql)
+            self.conn.commit()
+            cursor.close()
+            logging.info("历史记录已清空")
+        except Exception as e:
+            logging.info(f"清空历史记录失败: {e}")
+        return
