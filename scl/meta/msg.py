@@ -1,9 +1,10 @@
-from scl.embeddings.impl import embed
+from scl.embeddings.cached_embedding import embed
 
 class Msg:
     def __init__(self, messages):
         self._messages = messages
-        self._embed = embed(messages[0]['content'])
+        self._embed = embed(messages)
+        #self._embed = embed(messages[0]['content'])
 
     def append(self, context):
         self._messages.append(context)

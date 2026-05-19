@@ -5,8 +5,14 @@ This module provides a registry for managing and retrieving AI tool capabilities
 using various search strategies (exact name, semantic similarity, and history).
 
 Features:
+- Initialize with a specific storage backend.
+- Support multiple RAG functions as BM25 or embedding-based.
+- Support adding capabilities.
+    - The name and description of capabilities are required and unique.
+    - Once a new capability is added, trigger an update if needed.(for example BM25)
 - Retrieve capabilities by exact tool name.
 - Semantic search for capabilities based on message context (RAG).
+    - Able to config rules of Semantic search logic.
 - History-based capability suggestion.
 - Record capability usage for future recommendations.
 - Fully instrumented with OpenTelemetry for distributed tracing, metrics, and logging.

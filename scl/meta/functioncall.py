@@ -26,7 +26,7 @@ from typing import Optional, Dict, Any
 
 from opentelemetry import trace
 from scl.otel.otel import tracer, meter
-from scl.embeddings.impl import embed
+from scl.embeddings.cached_embedding import embed
 from scl.meta.capability import Capability
 
 logger = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ class FunctionCall(Capability):
     def __init__(self,
                  name: str,
                  description: str,
-                 original_body: str,
+                 original_body: Optional[str] = None,
                  llm_description: Optional[str] = None,
                  function_impl: Optional[str] = None):
         current_span = trace.get_current_span()
