@@ -13,9 +13,14 @@ Features and design goals
 
 - Supports insert_capability as adding a new capability.
     - By default, it will check if new capability's name and description are unique or not.
-    - If not unique, it will raise an error.
-    - If unique, it will add the new capability to the store, and recalculate description based BM25 for all existing capabilities.
-    - If embedding service is on, it will also generate an embedding for the new capability.
+    - If not unique, it will raise an error, and return none.
+    - If unique, it will check if insert model in force or not.
+        - If in force, it will add the new capability to the store.
+        - If not in force, it bases on embedding calculate similarity.
+        - If similarity is below a threshold, it will raise an error, and return the existing capability.
+        - Otherwise, add the new capability to the store.
+    - For any new capability added to the store, recalculate description based BM25 for all existing capabilities.
+    - For any new capability added to the store, return insert item as success.
 
 - Retrieve a capability by its exact name.
 - Semantic similarity search over cached skill embeddings:
@@ -60,7 +65,7 @@ from scl.meta.msg import Msg
 from opentelemetry import trace
 
 # Import the embedding service (singleton) and its global embed function
-from scl.embeddings.cached_embedding import embed as generate_embedding
+from scl.embeddings.embedding import embed as generate_embedding
 
 
 class fsstore(StoreBase):
@@ -148,7 +153,7 @@ class fsstore(StoreBase):
         Each document is built from the capability's name and description,
         lowercased and whitespace-tokenized for case-insensitive matching.
         """
-        self.logger.warning("rebuild BM25 as update")
+        self.logger.info("Rebuilding BM25 index")
         corpus = []
         for data in self._skill_embedding_cache.values():
             cap = data["Capability"]
@@ -161,7 +166,7 @@ class fsstore(StoreBase):
             self.bm25 = BM25Okapi(corpus)
         else:
             self.bm25 = None
-        self.logger.warning("BM25 index rebuilt with %d documents", len(corpus) if corpus else 0)
+        self.logger.info("BM25 index rebuilt with %d documents", len(corpus) if corpus else 0)
 
     def refresh_cache(self) -> None:
         """Clear the cache, reload from disk, repopulate from the skill directory, rebuild BM25, and save."""
@@ -177,42 +182,95 @@ class fsstore(StoreBase):
         self._save_cache_to_disk()
 
     @tracer.start_as_current_span("insert_capability")
-    def insert_capability(self, capability: Capability) -> None:
+    def insert_capability(self, capability: Capability, force: bool = False, similarity_threshold: float = 0.8) -> Capability:
         """
         Add a new capability to the store.
-        Checks uniqueness of name and description; raises ValueError if a duplicate exists.
-        Recalculates BM25 and, if embedding service is on, generates an embedding for the new capability.
+        Always checks uniqueness of name and description; raises ValueError if a duplicate exists.
+        If `force` is False and embedding_service_on is True, a similarity check is performed
+        against existing capabilities using embeddings. If the maximum cosine similarity
+        with any existing capability equals or exceeds `similarity_threshold`, a ValueError is raised
+        with the existing capability attached as `existing_capability` attribute.
+        Otherwise, the capability is inserted and returned.
+        Recalculates BM25 and persists cache.
+
+        Args:
+            capability: Capability to insert.
+            force: If True, skip the embedding similarity check.
+            similarity_threshold: Cosine similarity threshold for duplicate detection (only when force=False).
+
+        Returns:
+            The inserted Capability on success.
+
+        Raises:
+            ValueError: If a capability with the same name or description already exists,
+                        or if similarity check detects a too similar capability.
         """
         self.insert_counter.add(1)
         current_span = trace.get_current_span()
         current_span.set_attribute("capability.name", capability.name)
         current_span.set_attribute("capability.description", capability.description[:100] if capability.description else "")
-        # Uniqueness check
+        current_span.set_attribute("force", force)
+        
+        # Uniqueness check on exact name and description
         for data in self._skill_embedding_cache.values():
             cur = data["Capability"]
             if cur.name == capability.name:
                 msg = f"Capability with name '{capability.name}' already exists"
                 self.logger.error(msg)
                 current_span.set_attribute("error", True)
-                raise ValueError(msg)
+                exc = ValueError(msg)
+                exc.existing_capability = cur
+                raise exc
             if cur.description == capability.description:
                 msg = "Capability with the same description already exists"
                 self.logger.error(msg)
                 current_span.set_attribute("error", True)
-                raise ValueError(msg)
-        # Generate embedding if service is on and description exists
-        #if self.embedding_service_on and capability.description:
-        #    capability.embedding_description = generate_embedding(capability.description)
-        #else:
-        #    capability.embedding_description = None
-        # Create a synthetic key for the new capability
+                exc = ValueError(msg)
+                exc.existing_capability = cur
+                raise exc
+
+        # Similarity check when not forced and embedding service is available
+        if not force and self.embedding_service_on:
+            # Ensure the new capability has an embedding for comparison
+            if capability.description and capability.embedding_description is None:
+                capability.embedding_description = generate_embedding(capability.description)
+                self.logger.debug("Generated embedding for new capability '%s'", capability.name)
+            if capability.embedding_description is not None:
+                max_sim = 0.0
+                most_similar_cap = None
+                for data in self._skill_embedding_cache.values():
+                    cur = data["Capability"]
+                    if cur.embedding_description is not None:
+                        sim = self.cosine_similarity(capability.embedding_description, cur.embedding_description)
+                        if sim > max_sim:
+                            max_sim = sim
+                            most_similar_cap = cur
+                if max_sim >= similarity_threshold:
+                    msg = (f"Similar capability already exists (max cosine similarity {max_sim:.4f} >= threshold "
+                           f"{similarity_threshold}). Use force=True to insert anyway.")
+                    self.logger.error(msg)
+                    current_span.set_attribute("error", True)
+                    exc = ValueError(msg)
+                    exc.existing_capability = most_similar_cap
+                    raise exc
+                else:
+                    self.logger.debug("Similarity check passed, max similarity = %.4f", max_sim)
+            else:
+                self.logger.debug("No embedding for new capability, skipping similarity check")
+        elif not force and not self.embedding_service_on:
+            self.logger.debug("Embedding service is off, similarity check skipped")
+
+        # Insert the capability
         key = f"_inserted_{capability.name}"
         self._skill_embedding_cache[key] = {"Capability": capability}
-        self.logger.warning("Inserted capability '%s'", capability.name)
+        self.logger.info("Inserted capability '%s'", capability.name)
 
         # Update BM25 and persist
         self._rebuild_bm25()
         self._save_cache_to_disk()
+
+        current_span.set_attribute("insert.success", True)
+        return capability
 
     @tracer.start_as_current_span("get_cap_by_name")
     def get_cap_by_name(self, name: str) -> Optional[Capability]:
@@ -443,13 +501,17 @@ class fsstore(StoreBase):
 Example usage:
     from scl.storage.fsstore import fsstore
     from scl.meta.msg import Msg
+    from scl.meta.capability import Capability
 
     # Initialize the store (embedding service off for BM25 mode)
     store = fsstore(path="/path/to/capabilities", init=True, embedding_service_on=False)
 
     # Insert a new capability (name & description must be unique)
     new_cap = Capability(name="code_generator", type="tool", description="Generates python code from specs")
-    store.insert_capability(new_cap)
+    inserted = store.insert_capability(new_cap)  # returns the inserted Capability
+
+    # Insert with force (bypass similarity check, useful when embedding service is off)
+    store.insert_capability(another_cap, force=True)
 
     # Find a capability by name
     cap = store.get_cap_by_name("text_classifier")
@@ -457,15 +519,15 @@ Example usage:
         print(cap.name, cap.description)
 
     # Search using BM25 with min‑max normalization
-    query = Msg(text="generate code from specification")
+    query = Msg(messages="generate code from specification")  # Msg uses 'messages' attribute
     results = store.search_by_similarity(query, limit=3, min_similarity=0.2)
     for name, capability in results.items():
         print(f"{name}: {capability.description}")
 
     # Initialize with embedding service on (embedding similarity)
     store_emb = fsstore(path="/path/to/skills", init=True, embedding_service_on=True)
-    # Msg must contain an embedding vector (list of floats)
-    query_emb = Msg(embed=[0.1, 0.2, ...])
+    # Msg must contain an embedding vector (list of floats) in 'embed' attribute
+    query_emb = Msg(embed=[0.1, 0.2, ...])  # messages can be empty if only embedding used
     results_emb = store_emb.search_by_similarity(query_emb, limit=3)
     for name, capability in results_emb.items():
         print(f"{name}: {capability.description}")
@@ -476,7 +538,7 @@ Example usage:
         print(f"{name}: combined score")
 
     # Combined BM25 variants only (no embedding required): min‑max + sigmoid
-    results_hybrid = store_emb.search_by_similarity(Msg(text="some query"), limit=3, combine_method="option4", alpha=0.6)
+    results_hybrid = store_emb.search_by_similarity(Msg(messages="some query"), limit=3, combine_method="option4", alpha=0.6)
 
     # Refresh cache after adding/removing skill folders
     store.refresh_cache()

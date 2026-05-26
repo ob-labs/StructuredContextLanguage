@@ -18,27 +18,27 @@ from typing import Dict, Any, List, Optional, Tuple
 DATA_DIR = "/Users/yuanyi/OpenSource/gorilla/berkeley-function-call-leaderboard/bfcl_eval/data"
 ANSWER_DIR = os.path.join(DATA_DIR, "possible_answer")
 TARGET_FILES = [
-    "BFCL_v4_irrelevance.json",
-    "BFCL_v4_live_irrelevance.json",
+    #"BFCL_v4_irrelevance.json",
+    #"BFCL_v4_live_irrelevance.json",
     "BFCL_v4_live_multiple.json",
-    "BFCL_v4_live_parallel_multiple.json",
-    "BFCL_v4_live_parallel.json",
-    "BFCL_v4_live_relevance.json",
+    #"BFCL_v4_live_parallel_multiple.json",
+    #"BFCL_v4_live_parallel.json",
+    #"BFCL_v4_live_relevance.json",
 ]
 STORE_PATH = "./bfcl_fsstore"
 
-# 需要遍历 alpha 的 combine_method 及其标签
+# 需要遍历 alpha 的 combine_method
 METHODS_WITH_ALPHA: List[Tuple[str, str]] = [
     ("1", "minmax"),
-    ("2", "sigmoid"),
-    ("3", "tanh"),
-    ("4", "minmax_sigmoid"),
-    ("5", "minmax_tanh"),
+    #("2", "sigmoid"),
+    #("3", "tanh"),
+    #("4", "minmax_sigmoid"),
+    #("5", "minmax_tanh"),
 ]
-ALPHAS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+ALPHAS = [0.1]#, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
 
 # ------------------------------
-# 工具函数（与原有完全相同）
+# 工具函数（不变）
 # ------------------------------
 def load_jsonl(file_path: str) -> List[Dict[str, Any]]:
     data = []
@@ -125,16 +125,22 @@ def get_user_query(question: Any) -> str:
     return ""
 
 # ------------------------------
-# 评估函数（增加 alpha 参数）
+# 评估函数（含 alias_map，将高度相似功能视为同一）
 # ------------------------------
 def evaluate_method(store, files: List[str], answer_dir: str,
-                    combine_method: Optional[str], alpha: Optional[float] = None) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+                    combine_method: Optional[str],
+                    alpha: Optional[float] = None,
+                    alias_map: Dict[str, str] = None) -> Tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    if alias_map is None:
+        alias_map = {}
+
     per_file_stats = defaultdict(lambda: {
         "total_relevant": 0, "total_irrelevant": 0,
         "recall_hits": {k: 0 for k in [1, 3, 5]},
         "irrelevant_misjudge": 0,
     })
     all_results = []
+    failure_cases = []
 
     for fname in files:
         file_path = os.path.join(DATA_DIR, fname)
@@ -153,12 +159,14 @@ def evaluate_method(store, files: List[str], answer_dir: str,
             if isinstance(entry.get("function"), list):
                 provided_funcs = {f["name"] for f in entry["function"]}
 
+            # 映射到实际存储的代表名
+            mapped_true_names = {alias_map.get(n, n) for n in true_names}
+            mapped_provided = {alias_map.get(n, n) for n in provided_funcs}
+
             gt_str = ";".join(true_names)
             provided_str = ";".join(sorted(provided_funcs))
 
             msg = Msg(messages=query_text)
-
-            # 传递 alpha 参数（仅当 combine_method 不为 None）
             kwargs = {"limit": 5, "min_similarity": 0.0, "combine_method": combine_method}
             if combine_method is not None and alpha is not None:
                 kwargs["alpha"] = alpha
@@ -172,30 +180,50 @@ def evaluate_method(store, files: List[str], answer_dir: str,
                     "query": query_text,
                     "rank": rank,
                     "function_name": name,
-                    "is_ground_truth": name in true_names if true_names else False,
-                    "is_provided": name in provided_funcs,
+                    "is_ground_truth": name in mapped_true_names if true_names else False,
+                    "is_provided": name in mapped_provided,
                     "ground_truth": gt_str,
                     "provided_functions": provided_str,
+                })
+
+            is_failure = False
+            if true_names:
+                if not any(name in retrieved_names for name in mapped_true_names):
+                    is_failure = True
+            else:
+                if set(retrieved_names) & mapped_provided:
+                    is_failure = True
+
+            if is_failure:
+                failure_cases.append({
+                    "source_file": fname,
+                    "entry_id": entry["id"],
+                    "query": query_text,
+                    "ground_truth": gt_str if true_names else "",
+                    "provided_functions": provided_str,
+                    "retrieved_top5": ";".join(retrieved_names),
+                    "type": "relevant" if true_names else "irrelevant",
                 })
 
             if true_names:
                 stats["total_relevant"] += 1
                 for k in [1, 3, 5]:
-                    if any(name in retrieved_names[:k] for name in true_names):
+                    if any(name in retrieved_names[:k] for name in mapped_true_names):
                         stats["recall_hits"][k] += 1
             else:
                 stats["total_irrelevant"] += 1
-                if set(retrieved_names) & provided_funcs:
+                if set(retrieved_names) & mapped_provided:
                     stats["irrelevant_misjudge"] += 1
 
-    return per_file_stats, all_results
+    return per_file_stats, all_results, failure_cases
 
 # ------------------------------
 # 主流程
 # ------------------------------
 def main():
-    # 1. 收集函数并插入 fsstore（仅一次）
-    unique_funcs: Dict[str, str] = {}
+    # 1. 收集函数（按原始名称去重）
+    unique_funcs_raw: List[Tuple[str, str]] = []
+    name_to_desc: Dict[str, str] = {}
     print("正在加载 BFCL 数据...")
     for fname in TARGET_FILES:
         path = os.path.join(DATA_DIR, fname)
@@ -208,71 +236,131 @@ def main():
                 continue
             for func in functions:
                 name = func.get("name", "")
-                if name and name not in unique_funcs:
-                    unique_funcs[name] = build_function_doc(func)
+                if name and name not in name_to_desc:
+                    desc = build_function_doc(func)
+                    name_to_desc[name] = desc
+                    unique_funcs_raw.append((name, desc))
 
-    print(f"去重后唯一函数数: {len(unique_funcs)}，正在初始化 fsstore...")
+    print(f"名称去重后函数数: {len(unique_funcs_raw)}，正在初始化 fsstore...")
     store = fsstore(path=STORE_PATH, init=True, embedding_service_on=True)
-    for name, desc in unique_funcs.items():
+
+    # 2. 插入功能，同时检测因相似度高被拒绝的情况
+    alias_map: Dict[str, str] = {}
+    inserted_names = set()
+    duplicate_pairs = []
+
+    for name, desc in unique_funcs_raw:
         cap = FunctionCall(name=name, description=desc)
         try:
-            store.insert_capability(cap)
-        except Exception:
-            pass
+            inserted = store.insert_capability(cap)
+        except Exception as e:
+            print(f"插入 {name} 抛出异常: {e}")
+            inserted = None
 
-    print("开始评估所有 combine_method 和 alpha 组合...\n")
+        # ---------- 关键修改 ----------
+        if inserted is None:
+            # 返回 None：搜索最相似的已存在功能作为代表
+            query_msg = Msg(messages=desc)
+            similar = store.search_by_similarity(query_msg, limit=1, min_similarity=0.0)
+            if similar:
+                rep_name = list(similar.keys())[0]
+                alias_map[name] = rep_name
+                duplicate_pairs.append((name, rep_name, desc))
+                print(f"⚠️  功能 '{name}' 因高度相似被拒绝 (返回None)，视为与 '{rep_name}' 重复。")
+            else:
+                # 找不到相似项，强制插入
+                store.insert_capability(cap, force=True)
+                alias_map[name] = name
+                inserted_names.add(name)
+                print(f"⚠️  功能 '{name}' 插入失败且未找到相似项，已 force 插入。")
+        elif inserted.name != name:
+            # 返回了不同的 capability，说明因相似度高被拒绝，返回的是已存在的相似功能
+            rep_name = inserted.name
+            alias_map[name] = rep_name
+            duplicate_pairs.append((name, rep_name, desc))
+            print(f"⚠️  功能 '{name}' 因高度相似被拒绝，视为与 '{rep_name}' 重复。")
+        else:
+            # 插入成功，名称一致
+            inserted_names.add(name)
 
-    overall_summary = []  # 存储 (method_label, alpha_value, total_rel, total_irr, top1, top3, top5, misjudge)
+    total_unique = len(inserted_names)
+    print(f"\n合并高度相似后独立功能数: {total_unique}")
+    print(f"相似度高被拒绝的功能数: {len(alias_map)}")
+    if duplicate_pairs:
+        print("\n重复详情：")
+        for orig, rep, desc in duplicate_pairs:
+            print(f"  {orig} -> {rep}  (描述: {desc[:80]}...)")
+        with open("duplicate_mapping.csv", "w", newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(["original_name", "representative_name", "description"])
+            for orig, rep, desc in duplicate_pairs:
+                writer.writerow([orig, rep, desc])
+        print("重复映射已保存至 duplicate_mapping.csv")
 
-    # --- 先评估 combine_method = None（纯粹 BM25 + embedding 混合？实际上是自动选择）---
+    # 3. 评估（与之前相同，传入 alias_map）
+    print("\n开始评估所有 combine_method 和 alpha 组合...\n")
+    overall_summary = []
+    fieldnames_detail = ["source_file", "entry_id", "query", "rank", "function_name",
+                         "is_ground_truth", "is_provided", "ground_truth", "provided_functions"]
+    fieldnames_fail = ["source_file", "entry_id", "query", "ground_truth", "provided_functions", "retrieved_top5", "type"]
+
+    # None 方法
     print(">>> 正在评估 combine_method = None")
-    per_file_stats, all_results = evaluate_method(store, TARGET_FILES, ANSWER_DIR, None)
+    per_file_stats, all_results, failure_cases = evaluate_method(
+        store, TARGET_FILES, ANSWER_DIR, None, alias_map=alias_map
+    )
     csv_path = "fsstore_results_none.csv"
-    fieldnames = ["source_file", "entry_id", "query", "rank", "function_name",
-                  "is_ground_truth", "is_provided", "ground_truth", "provided_functions"]
     with open(csv_path, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames_detail)
         writer.writeheader()
         writer.writerows(all_results)
-    print(f"    结果已保存至 {csv_path}")
+    fail_path = "fsstore_failures_none.csv"
+    with open(fail_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames_fail)
+        writer.writeheader()
+        writer.writerows(failure_cases)
+    print(f"    详细结果: {csv_path}, 失败案例: {fail_path} ({len(failure_cases)} 条)")
 
     total_rel = sum(s["total_relevant"] for s in per_file_stats.values())
     total_irr = sum(s["total_irrelevant"] for s in per_file_stats.values())
     hits = {k: sum(s["recall_hits"][k] for s in per_file_stats.values()) for k in [1, 3, 5]}
     total_mis = sum(s["irrelevant_misjudge"] for s in per_file_stats.values())
-    overall_summary.append(("none", "-",
-                            total_rel, total_irr,
+    overall_summary.append(("none", "-", total_rel, total_irr,
                             hits[1]/total_rel if total_rel else 0.0,
                             hits[3]/total_rel if total_rel else 0.0,
                             hits[5]/total_rel if total_rel else 0.0,
                             total_mis/total_irr if total_irr else 0.0))
 
-    # --- 遍历所有带 alpha 的 method ---
+    # 遍历带 alpha 的方法
     for method_val, method_label in METHODS_WITH_ALPHA:
         for alpha in ALPHAS:
-            label = f"{method_label} (α={alpha:.1f})"
             print(f">>> 正在评估 combine_method = {method_val}, alpha = {alpha:.1f}")
-            per_file_stats, all_results = evaluate_method(store, TARGET_FILES, ANSWER_DIR,
-                                                         method_val, alpha=alpha)
+            per_file_stats, all_results, failure_cases = evaluate_method(
+                store, TARGET_FILES, ANSWER_DIR, method_val, alpha=alpha, alias_map=alias_map
+            )
             csv_path = f"fsstore_results_{method_label}_alpha{alpha:.1f}.csv"
             with open(csv_path, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer = csv.DictWriter(f, fieldnames=fieldnames_detail)
                 writer.writeheader()
                 writer.writerows(all_results)
-            print(f"    结果已保存至 {csv_path}")
+            fail_path = f"fsstore_failures_{method_label}_alpha{alpha:.1f}.csv"
+            with open(fail_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames_fail)
+                writer.writeheader()
+                writer.writerows(failure_cases)
+            print(f"    详细结果: {csv_path}, 失败案例: {fail_path} ({len(failure_cases)} 条)")
 
             total_rel = sum(s["total_relevant"] for s in per_file_stats.values())
             total_irr = sum(s["total_irrelevant"] for s in per_file_stats.values())
             hits = {k: sum(s["recall_hits"][k] for s in per_file_stats.values()) for k in [1, 3, 5]}
             total_mis = sum(s["irrelevant_misjudge"] for s in per_file_stats.values())
-            overall_summary.append((method_label, f"{alpha:.1f}",
-                                    total_rel, total_irr,
+            overall_summary.append((method_label, f"{alpha:.1f}", total_rel, total_irr,
                                     hits[1]/total_rel if total_rel else 0.0,
                                     hits[3]/total_rel if total_rel else 0.0,
                                     hits[5]/total_rel if total_rel else 0.0,
                                     total_mis/total_irr if total_irr else 0.0))
 
-    # 打印整体对比表格
+    # 汇总表格
     print("\n" + "=" * 110)
     print(f"{'Method':<18}{'Alpha':<6}{'Total Rel':>8}{'Total Irr':>8}{'Top1':>8}{'Top3':>8}{'Top5':>8}{'Misjudge':>10}")
     print("=" * 110)

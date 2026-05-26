@@ -1,4 +1,4 @@
-from scl.embeddings.cached_embedding import embed
+from scl.embeddings.embedding import embed
 
 class Msg:
     def __init__(self, messages):

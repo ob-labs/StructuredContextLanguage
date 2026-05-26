@@ -217,6 +217,89 @@ It seems nothing changes as BFCL_v4_live_irrelevance.json 67.6% with correction 
 | BFCL_v4_live_parallel_multiple.json | 83.3% | 83.3% | 83.3% | 83.3% |  83.3% | 83.3% | 83.3% | 83.3% | 83.3% | 
 | BFCL_v4_live_parallel.json | 93.8% | 93.8% | 93.8% | 93.8% | 93.8% | 93.8% | 93.8% | 93.8% |  93.8% |
 
+#### Analysis Error
+
+We further checked about the error case.
+For example:`live_multiple_135-51-1`, the original query is `What is the temperature in London, UK?` with given tool `weather.get,stock_price.get`. Expect LLM picked up `weather.get` for our top 5 search, we get `fahrenheit_to_celsius;celsius_to_fahrenheit;weather.get_weather_data;get_current_weather;weather.get_weather`. Further searched keyword `Weather` among tool description, we found: 
+```
+"name": "Weather_1_GetWeather", "description": "Retrieves the current or historical weather data for a specified city on a given date."
+"name": "api.weather", "description": "Retrieve current weather information for a specified location."
+"name": "OpenWeatherMap.get_current_weather", "description": "Fetches the current weather information for a specified location using the OpenWeatherMap API."
+"name": "weather.get", "description": "Get the current weather details such as temperature, wind speed, and precipitation for a specified city and country."
+"name": "weather.get_weather", "description": "Get the current weather conditions, including temperature, wind speed, and precipitation, for a specified city within a country."
+"name": "get_current_weather", "description": "Retrieves the current weather information for a specified location."
+```
+if we just run single bench as BFCL_v4_live_multiple.json, it can reach out to 90.3% as top 5 result.
+==============================================================================================================
+Method            Alpha Total RelTotal Irr    Top1    Top3    Top5  
+==============================================================================================================
+default           -         1053       0   0.637   0.817   0.889   
+minmax            0.1       1053       0   0.638   0.841   0.903
+==============================================================================================================
+
+#### Further flitting tool description during registration 
+
+Considering a function call, MCP, skill management case. `Weather_1_GetWeather` and `weather.get_weather` seems a duplicate on meaning. In this case, we prefer to update `weather.get_weather` with features in `Weather_1_GetWeather`, unfortunately in BFCL, there seems no implements for those functions. Focus on auto injection of function call, MCP, skill for any specific prompt, we can add embedding based deduplicate filter, and the correction rate for BFCL_v4_live_multiple bench up to 95.2% and for test set, it upto 91.6%.
+
+==============================================================================================================
+Method            Alpha Total RelTotal Irr    Top1    Top3    Top5 
+==============================================================================================================
+default           -         1053       0   0.714   0.893   0.941    
+minmax            0.1       1053       0   0.723   0.903   0.952    
+==============================================================================================================
+
+==============================================================================================================
+Method            Alpha Total RelTotal Irr    Top1    Top3    Top5  Misjudge
+==============================================================================================================
+default           -         1093    1140   0.626   0.833   0.898     0.354
+minmax            0.1       1093    1140   0.655   0.864   0.916     0.366
+==============================================================================================================
+
+### Performane on other bench
+
+We further tested our approach on other benches.
+
+#### MCP-Tools
+
+From MCPToolBench++,GitHub: https://github.com/mcp-tool-bench/MCPToolBenchPP,HuggingFace: https://huggingface.co/datasets/MCPToolBench/MCPToolBenchPP.
+For it's single bench as filesystem_0723_single, as 241 query with 10 function call.
+==============================================================================================================
+Method            Alpha Total RelTotal Irr    Top1    Top3    Top5  
+==============================================================================================================
+embedding         -          241       0   0.967   0.992   0.996     
+minmax            0.1        241       0   0.942   1.000   1.000     
+==============================================================================================================
+
+For all benches
+==============================================================================================================
+Method            Alpha Total RelTotal Irr    Top1    Top3    Top5  
+==============================================================================================================
+embedding         -         1509       0   0.675   0.836   0.893     
+minmax            0.1       1509       0   0.698   0.847   0.891     
+==============================================================================================================
+
+#### ToolE
+
+From MetaTool(MetaTool Benchmark for Large Language Models: Deciding Whether to Use Tools and Which to Use, GitHub: https://github.com/HowieHwong/MetaTool) as 20614 query with 197 function call.
+==============================================================================================================
+Method            Alpha Total RelTotal Irr    Top1    Top3    Top5  
+==============================================================================================================
+none              -        20614       0   0.478   0.643   0.713     
+minmax            0.1      20614       0   0.468   0.626   0.694     
+==============================================================================================================
+
+the bge-m3 embedding got score as 71.3% for Top 5. if we switch to Qwen3-Embedding-0.6B, as 20614 query with 132 function call, the correction up to 83.7%.
+
+==============================================================================================================
+Method            Alpha Total RelTotal Irr    Top1    Top3    Top5   
+==============================================================================================================
+none              -        20614       0   0.628   0.785   0.837    
+minmax            0.1      20614       0   0.572   0.730   0.791    
+==============================================================================================================
+
+![details on ToolE](./detailsOnToolE.png "details on ToolE")
+
+Go through details on ToolE bench error case, for example, with query `Can you pull up the top-rated restaurants in New York City?`, the answer seesms `web_requests` and our suggestion as `Broadway;recipe_retrieval;TripTool;Man_of_Many;total_query_meta_search_engine`, which seems limitation from original bench, as only one result is given, and which too general.
 
 ## Discussion
 
