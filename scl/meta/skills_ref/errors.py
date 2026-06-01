@@ -1,5 +1,5 @@
 """Skill-related exceptions."""
-
+from typing import List, Optional
 
 class SkillError(Exception):
     """Base exception for all skill-related errors."""
@@ -20,6 +20,6 @@ class ValidationError(SkillError):
         errors: List of validation error messages (may contain just one)
     """
 
-    def __init__(self, message: str, errors: list[str] | None = None):
+    def __init__(self, message: str, errors: Optional[List[str]] = None):
         super().__init__(message)
         self.errors = errors if errors is not None else [message]

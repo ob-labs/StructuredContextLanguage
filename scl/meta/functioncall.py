@@ -26,7 +26,7 @@ from typing import Optional, Dict, Any
 
 from opentelemetry import trace
 from scl.otel.otel import tracer, meter
-from scl.embeddings.cached_embedding import embed
+from scl.embeddings.embedding import embed
 from scl.meta.capability import Capability
 
 logger = logging.getLogger(__name__)

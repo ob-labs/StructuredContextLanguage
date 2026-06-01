@@ -1,3 +1,8 @@
+export EMBEDDING_LOCAL_MODEL_PATH=/Users/yuanyi/OpenSource/OBTest/StructuredContextLanguage/bge-m3
+export EMBEDDING_CACHE_PATH=/Users/yuanyi/OpenSource/OBTest/StructuredContextLanguage/embeddings_cache.json
+python example/BFCL/gothroughfunctions.py
+
+
 
 ## Step 0, config Otel, server
 

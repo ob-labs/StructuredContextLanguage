@@ -20,10 +20,12 @@ class Config:
     api_port = os.getenv("API_PORT", "8080")
 
     # embedding related settings
-    embedding_model: str = os.getenv("EMBEDDING_MODEL", "BAAI/bge-large-zh-v1.5")
+    embedding_model: str = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
     embedding_model_dims: int = int(os.getenv("EMBEDDING_MODEL_DIMS", "1024"))
     embedding_api_key: Optional[str] = os.getenv("EMBEDDING_API_KEY")
     embedding_base_url: str = os.getenv("EMBEDDING_BASE_URL", "https://api.siliconflow.cn/v1")
+    embedding_local_model_path: Optional[str] = os.getenv("EMBEDDING_LOCAL_MODEL_PATH")
+    embedding_cache_path: Optional[str] = os.getenv("EMBEDDING_CACHE_PATH")
     
     ## todo, vars here may changes
     limit: int = int(os.getenv("LIMIT", "5"))
