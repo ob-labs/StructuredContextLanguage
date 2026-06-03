@@ -96,7 +96,7 @@ StructuredContextLanguage/
 │   ├── BFCL/                  # BFCL benchmark scripts
 │   ├── mcptool/               # MCPTool benchmark scripts
 │   └── MetaTool/              # MetaTool benchmark scripts
-├── doc/                       # Documentation
+├── docs/                      # Documentation
 ├── Dockerfile                 # Container support
 ├── docker-compose.yml         # Orchestration
 ├── prometheus.yml             # Prometheus config for metrics

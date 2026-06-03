@@ -12,6 +12,6 @@ todo_folder/
 .ruff_cache/
 .coverage
 htmlcov/
-doc/
+docs/
 tests/
 scl/storage/skills/

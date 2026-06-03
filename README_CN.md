@@ -63,7 +63,7 @@ curl -X POST http://localhost:8080/tasks \
 echo '{"system_prompt": "你好"}' > ./todo_folder/task.json
 ```
 
-详见[入门指南](doc/04-getting-started.md)。
+详见[入门指南](docs/04-getting-started.md)。
 
 ---
 
@@ -88,16 +88,16 @@ queue.add(task)  # 自动通知处理器
 
 | 文档 | 说明 |
 |------|------|
-| [概览与设计理念](doc/01-overview.md) | 愿景、设计原则与哲学 |
-| [架构](doc/02-architecture.md) | 组件分解、数据流与系统设计 |
-| [核心概念](doc/03-core-concepts.md) | Task、Capability、CapRegistry、Embedding、Storage、Queue、Processor |
-| [入门指南](doc/04-getting-started.md) | 安装、配置与快速上手 |
-| [SDK 参考](doc/05-sdk-reference.md) | API 参考与常见使用模式 |
-| [开发路线图](doc/06-development.md) | 项目状态、路线图与贡献指南 |
+| [概览与设计理念](docs/01-overview.md) | 愿景、设计原则与哲学 |
+| [架构](docs/02-architecture.md) | 组件分解、数据流与系统设计 |
+| [核心概念](docs/03-core-concepts.md) | Task、Capability、CapRegistry、Embedding、Storage、Queue、Processor |
+| [入门指南](docs/04-getting-started.md) | 安装、配置与快速上手 |
+| [SDK 参考](docs/05-sdk-reference.md) | API 参考与常见使用模式 |
+| [开发路线图](docs/06-development.md) | 项目状态、路线图与贡献指南 |
 
 ### 研究
 
-- [面向 Agent 的能力自动缩放方案](doc/blog/A%20way%20to%20auto%20scaling%20capabilities%20for%20Agent.md) — 基于 RAG 的工具选择，在 BFCL、MCPToolBench++ 和 ToolE 基准上的评估
+- [面向 Agent 的能力自动缩放方案](docs/blog/A%20way%20to%20auto%20scaling%20capabilities%20for%20Agent.md) — 基于 RAG 的工具选择，在 BFCL、MCPToolBench++ 和 ToolE 基准上的评估
 
 ---
 
@@ -138,7 +138,7 @@ todo_folder/  ─── 文件级持久化层
 | WebSocket 钩子 | 📋 计划中 |
 | 调试框架 | 📋 计划中 |
 
-详见[开发路线图](doc/06-development.md)。
+详见[开发路线图](docs/06-development.md)。
 
 ---
 
@@ -153,7 +153,7 @@ SCL 的 RAG 能力选择在行业基准上的表现：
 | MCPToolBench++ (single) | MCP 工具选择 | 99.6% |
 | ToolE (Qwen3-Embedding) | 工具选择 | 83.7% |
 
-详见[研究论文](doc/blog/A%20way%20to%20auto%20scaling%20capabilities%20for%20Agent.md)。
+详见[研究论文](docs/blog/A%20way%20to%20auto%20scaling%20capabilities%20for%20Agent.md)。
 
 ---
 
