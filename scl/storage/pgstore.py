@@ -1,22 +1,26 @@
-import psycopg2
-import sys
-import os
 import json
 import logging
+import os
+import sys
+
+import psycopg2
+
 # Add the StructuredContextLanguage directory to the path
 scl_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(scl_root)
-from scl.meta.msg import Msg
-from typing import Dict
-from scl.otel.otel import tracer
+
 from scl.config import config
-from scl.storage.base import StoreBase
 from scl.meta.capability import Capability
+from scl.meta.msg import Msg
+from scl.otel.otel import tracer
+from scl.storage.base import StoreBase
+
 Vector = None
 register_vector_info = None
 try:
     from pgvector import Vector
     from pgvector.psycopg2 import register_vector_info
+
     logging.info("pgvector imported successfully")
 except ImportError as e:
     logging.info(f"Warning: pgvector not installed or import failed: {e}")
@@ -25,8 +29,15 @@ except ImportError as e:
 
 
 class PgVectorStore(StoreBase):
-    def __init__(self, dbname="postgres", user="postgres", password="your_password", 
-                 host="localhost", port="5432", init=False):
+    def __init__(
+        self,
+        dbname="postgres",
+        user="postgres",
+        password="your_password",
+        host="localhost",
+        port="5432",
+        init=False,
+    ):
         """
         初始化数据库连接
         """
@@ -35,9 +46,9 @@ class PgVectorStore(StoreBase):
             "user": user,
             "password": password,
             "host": host,
-            "port": port
+            "port": port,
         }
-                
+
         self.conn = None
         self.connect()
         if init:
@@ -45,7 +56,7 @@ class PgVectorStore(StoreBase):
             self.enable_vector_extension()
             self.create_table()
             self.create_history_table()
-            
+
     def connect(self):
         """连接到数据库"""
         try:
@@ -54,7 +65,9 @@ class PgVectorStore(StoreBase):
                 try:
                     # Try to register vector type
                     cursor = self.conn.cursor()
-                    cursor.execute("SELECT typname, oid, typarray FROM pg_type WHERE typname = 'vector'")
+                    cursor.execute(
+                        "SELECT typname, oid, typarray FROM pg_type WHERE typname = 'vector'"
+                    )
                     result = cursor.fetchone()
                     cursor.close()
                     if result:
@@ -67,44 +80,45 @@ class PgVectorStore(StoreBase):
             logging.info("请确保PostgreSQL已安装并运行")
             sys.exit(1)
 
-    
     def close(self):
         """关闭数据库连接"""
         if self.conn:
             self.conn.close()
             logging.info("数据库连接已关闭")
-    
+
     def create_database(self):
         """从零开始创建数据库（需要先连接到默认数据库）"""
         # 首先连接到默认的postgres数据库
         default_params = self.db_params.copy()
         default_params["dbname"] = "postgres"
-        
+
         try:
             conn = psycopg2.connect(**default_params)
             conn.autocommit = True
             cursor = conn.cursor()
-            
+
             # 检查数据库是否存在
-            cursor.execute("SELECT 1 FROM pg_database WHERE datname = %s", (self.db_params["dbname"],))
+            cursor.execute(
+                "SELECT 1 FROM pg_database WHERE datname = %s", (self.db_params["dbname"],)
+            )
             exists = cursor.fetchone()
-            
+
             if not exists:
                 # 创建新数据库
                 cursor.execute(f"CREATE DATABASE {self.db_params['dbname']}")
                 logging.info(f"数据库 '{self.db_params['dbname']}' 创建成功！")
             else:
                 logging.info(f"数据库 '{self.db_params['dbname']}' 已存在")
-            
+
             cursor.close()
             conn.close()
-            
+
             # 重新连接到新创建的数据库
             self.connect()
-            
+
         except Exception as e:
             logging.info(f"创建数据库失败: {e}")
-    
+
     def enable_vector_extension(self):
         """启用pgvector扩展"""
         try:
@@ -116,7 +130,7 @@ class PgVectorStore(StoreBase):
         except Exception as e:
             logging.info(f"启用扩展失败: {e}")
             self.conn.rollback()
-    
+
     def create_history_table(self):
         """创建历史记录表"""
         try:
@@ -145,7 +159,7 @@ class PgVectorStore(StoreBase):
         """创建函数存储表"""
         try:
             cursor = self.conn.cursor()
-            
+
             # 获取嵌入模型的维度
             embedding_dims = config.embedding_model_dims
             create_table_sql = f"""
@@ -160,16 +174,18 @@ class PgVectorStore(StoreBase):
                 function_impl TEXT NOT NULL
             );
             """
-            
+
             cursor.execute(create_table_sql)
-            
+
             # 创建索引以提高查询性能
             # 为function_name创建索引
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_name ON capabilities(name);")
-            
+
             # 为llm_description创建GIN索引以加速JSON查询
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_llm_description ON capabilities USING GIN (llm_description);")
-            
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_llm_description ON capabilities USING GIN (llm_description);"
+            )
+
             # 为vector字段创建IVFFLAT索引以加速相似性搜索
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_embedding_description
@@ -177,43 +193,56 @@ class PgVectorStore(StoreBase):
                 USING ivfflat (embedding_description vector_l2_ops)
                 WITH (lists = 100);
             """)
-            
+
             self.conn.commit()
             cursor.close()
             logging.info("表格创建成功，并已建立索引")
-            
+
         except Exception as e:
             logging.info(f"创建表格失败: {e}")
             self.conn.rollback()
-    
+
     @tracer.start_as_current_span("insert_capability")
-    def insert_capability(self, cap:Capability):
+    def insert_capability(self, cap: Capability):
         """
         插入新函数
-        
+
         Args:
             cap: Capability
         """
-        try:                                    
+        try:
             # 生成description的嵌入向量
-            #embedding = Vector(cap.embedding_description)
+            # embedding = Vector(cap.embedding_description)
             cursor = self.conn.cursor()
-            
+
             insert_sql = """
             INSERT INTO capabilities (name, description, type, embedding_description, original_body, llm_description, function_impl)
             VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s)
             RETURNING id;
             """
-            logging.info(f"Inserting function: {cap.name}, {cap.description}, {cap.type}, {cap.original_body}, {cap.function_impl}")
-            cursor.execute(insert_sql, (cap.name, cap.description, cap.type, cap.embedding_description, cap.original_body, cap.llm_description, cap.function_impl))
+            logging.info(
+                f"Inserting function: {cap.name}, {cap.description}, {cap.type}, {cap.original_body}, {cap.function_impl}"
+            )
+            cursor.execute(
+                insert_sql,
+                (
+                    cap.name,
+                    cap.description,
+                    cap.type,
+                    cap.embedding_description,
+                    cap.original_body,
+                    cap.llm_description,
+                    cap.function_impl,
+                ),
+            )
             cap_id = cursor.fetchone()[0]
-            
+
             self.conn.commit()
             cursor.close()
-            
+
             logging.info(f"函数 '{cap.name}' 插入成功，ID: {cap_id}")
             return cap_id
-            
+
         except psycopg2.errors.UniqueViolation as e:
             logging.info(f"函数名 '{cap.name}' 已存在（唯一约束违规）{e}")
             self.conn.rollback()
@@ -224,11 +253,11 @@ class PgVectorStore(StoreBase):
             return None
 
     @tracer.start_as_current_span("get_cap_by_name")
-    def get_cap_by_name(self, name)-> Capability:
+    def get_cap_by_name(self, name) -> Capability:
         """根据函数名查询"""
         try:
             cursor = self.conn.cursor()
-            
+
             select_sql = """
             SELECT 
                 name,
@@ -238,10 +267,10 @@ class PgVectorStore(StoreBase):
             FROM capabilities
             WHERE name = %s;
             """
-            
+
             cursor.execute(select_sql, (name,))
             result = cursor.fetchall()
-            
+
             cursor.close()
 
             if result:
@@ -249,20 +278,22 @@ class PgVectorStore(StoreBase):
                 logging.info(row)
                 try:
                     llm_desc = json.loads(row[2]) if row[2] else {}
-                except:
+                except Exception:
                     llm_desc = row[2]
-                return Capability(name=row[0], type=row[1], llm_description=llm_desc, function_impl=row[3])
-                #[{"name":row[0],"type":row[1],"desc":llm_desc,"function_impl":row[3]}]
+                return Capability(
+                    name=row[0], type=row[1], llm_description=llm_desc, function_impl=row[3]
+                )
+                # [{"name":row[0],"type":row[1],"desc":llm_desc,"function_impl":row[3]}]
             else:
                 logging.info(f"未找到名为 '{name}' 的能力")
                 return None
-            
+
         except Exception as e:
             logging.info(f"查询失败: {e}")
             return None
-    
+
     @tracer.start_as_current_span("search_by_similarity")
-    def search_by_similarity(self, msg:Msg, limit=5, min_similarity=0.5)-> Dict[str, Capability]:
+    def search_by_similarity(self, msg: Msg, limit=5, min_similarity=0.5) -> dict[str, Capability]:
         """根据描述相似度查询函数"""
         try:
             # 为查询文本生成嵌入向量)
@@ -278,38 +309,40 @@ class PgVectorStore(StoreBase):
             ORDER BY embedding_description <=> %s::vector
             LIMIT %s;
             """
-            
+
             cursor.execute(search_sql, (query_embedding, query_embedding, limit))
             results = cursor.fetchall()
-            
+
             cursor.close()
             logging.info("finish query db")
-            
+
             if results:
                 similar_functions = {}
                 for row in results:
                     try:
                         llm_desc = json.loads(row[2]) if row[2] else {}
-                    except:
+                    except Exception:
                         llm_desc = row[2]
                     if float(row[3]) < min_similarity:
                         logging.info(f"{row[0]} 相似度 {row[3]} 低于阈值 {min_similarity}")
                         continue
-                    similar_functions[row[0]] = Capability(name=row[0], type=row[1], llm_description=llm_desc)
-                    #similar_functions.append({"name":row[0],"type":row[1],"desc":llm_desc})
-                
+                    similar_functions[row[0]] = Capability(
+                        name=row[0], type=row[1], llm_description=llm_desc
+                    )
+                    # similar_functions.append({"name":row[0],"type":row[1],"desc":llm_desc})
+
                 logging.info(f"找到 {len(similar_functions)} 个相似函数")
                 return similar_functions
             else:
                 logging.info("未找到相似函数")
                 return {}
-            
+
         except Exception as e:
             logging.info(f"相似性搜索失败: {e}")
             return {}
 
     @tracer.start_as_current_span("record_cap_history")
-    def record(self, msg:Msg, cap:Capability):
+    def record(self, msg: Msg, cap: Capability):
         try:
             cursor = self.conn.cursor()
             insert_sql = """
@@ -327,7 +360,7 @@ class PgVectorStore(StoreBase):
         return
 
     @tracer.start_as_current_span("getCapsByHistory")
-    def getCapsByHistory(self, msg:Msg, limit=5, min_similarity=0.5) -> Dict[str, Capability]:
+    def getCapsByHistory(self, msg: Msg, limit=5, min_similarity=0.5) -> dict[str, Capability]:
         """根据历史记录查询函数"""
         try:
             cursor = self.conn.cursor()
@@ -343,7 +376,7 @@ class PgVectorStore(StoreBase):
             ORDER BY cih.embedding <=> %s::vector
             LIMIT %s;
             """
-            
+
             cursor.execute(search_sql, (query_embedding, query_embedding, limit))
             results = cursor.fetchall()
             cursor.close()
@@ -352,14 +385,16 @@ class PgVectorStore(StoreBase):
                 for row in results:
                     try:
                         llm_desc = json.loads(row[2]) if row[2] else {}
-                    except:
+                    except Exception:
                         llm_desc = row[2]
                     if float(row[3]) < min_similarity:
                         logging.info(f"{row[0]} 相似度 {row[3]} 低于阈值 {min_similarity}")
                         continue
-                    history_caps[row[0]] = Capability(name=row[0], type=row[1], llm_description=llm_desc)
-                    #similar_functions.append({"name":row[0],"type":row[1],"desc":llm_desc})
-                
+                    history_caps[row[0]] = Capability(
+                        name=row[0], type=row[1], llm_description=llm_desc
+                    )
+                    # similar_functions.append({"name":row[0],"type":row[1],"desc":llm_desc})
+
                 logging.info(f"找到 {len(history_caps)} 个历史")
                 return history_caps
         except Exception as e:

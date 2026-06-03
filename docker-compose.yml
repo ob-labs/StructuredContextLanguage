@@ -1,0 +1,20 @@
+services:
+  app:
+    build: .
+    image: scl-app
+    ports:
+      - "8080:8080"
+    env_file:
+      - path: .env
+        required: false
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    restart: unless-stopped

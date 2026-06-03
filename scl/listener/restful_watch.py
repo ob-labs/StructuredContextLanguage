@@ -23,21 +23,18 @@ Install with:
     pip install fastapi uvicorn pyyaml opentelemetry-api opentelemetry-sdk
 """
 
+import json
 import logging
 import os
-import json
-import shutil
 from pathlib import Path
-from typing import Dict, List, Optional, Union
 
 import uvicorn
-from fastapi import FastAPI, Request, HTTPException
-
-from scl.otel.otel import tracer, meter
-from scl.meta.task import Task
-from scl.meta.captask import CapTask
-
+from fastapi import FastAPI, HTTPException, Request
 from opentelemetry import trace
+
+from scl.meta.captask import CapTask
+from scl.meta.task import Task
+from scl.otel.otel import meter, tracer
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +46,7 @@ class RestFulHandler:
     """
 
     def __init__(
-        self,
-        watch_path: str,
-        host: str = "0.0.0.0",
-        port: int = 8000,
-        log_level: str = "info"
+        self, watch_path: str, host: str = "0.0.0.0", port: int = 8000, log_level: str = "info"
     ):
         """
         Initialize REST handler.
@@ -77,28 +70,23 @@ class RestFulHandler:
 
         # Metrics
         self.restful_task_counter = meter.create_counter(
-            "restful_task_received",
-            description="Total number of REST tasks received"
+            "restful_task_received", description="Total number of REST tasks received"
         )
         self.restful_captask_counter = meter.create_counter(
-            "restful_captask_received",
-            description="Total number of REST captasks received"
+            "restful_captask_received", description="Total number of REST captasks received"
         )
         self.restful_item_valid_counter = meter.create_counter(
-            "restful_item_valid",
-            description="Number of REST items successfully processed"
+            "restful_item_valid", description="Number of REST items successfully processed"
         )
         self.restful_item_invalid_counter = meter.create_counter(
             "restful_item_invalid",
-            description="Number of REST items that failed validation/conversion"
+            description="Number of REST items that failed validation/conversion",
         )
         self.status_check_counter = meter.create_counter(
-            "restful_status_check",
-            description="Number of status checks performed"
+            "restful_status_check", description="Number of status checks performed"
         )
         self.approve_counter = meter.create_counter(
-            "restful_approve",
-            description="Number of approval actions performed"
+            "restful_approve", description="Number of approval actions performed"
         )
 
         # FastAPI app
@@ -117,7 +105,7 @@ class RestFulHandler:
     # POST /tasks
     # -------------------------------------------------------------------------
     @tracer.start_as_current_span("rest_api_receive_task")
-    async def _receive_task(self, request: Request) -> Dict[str, str]:
+    async def _receive_task(self, request: Request) -> dict[str, str]:
         """
         POST /tasks endpoint.
         Validates JSON, converts to Task, writes file to watch_path, returns hash.
@@ -136,7 +124,7 @@ class RestFulHandler:
             self.logger.error(f"Failed to create Task object: {e}")
             current_span.record_exception(e)
             self.restful_item_invalid_counter.add(1, {"item.type": "Task"})
-            raise HTTPException(status_code=422, detail="Invalid task format")
+            raise HTTPException(status_code=422, detail="Invalid task format") from e
 
         return self._finalize_item(task_obj, "Task", current_span)
 
@@ -144,7 +132,7 @@ class RestFulHandler:
     # POST /captasks
     # -------------------------------------------------------------------------
     @tracer.start_as_current_span("rest_api_receive_captask")
-    async def _receive_captask(self, request: Request) -> Dict[str, str]:
+    async def _receive_captask(self, request: Request) -> dict[str, str]:
         """
         POST /captasks endpoint.
         Validates JSON, converts to CapTask, writes file to watch_path, returns hash.
@@ -163,7 +151,7 @@ class RestFulHandler:
             self.logger.error(f"Failed to create CapTask object: {e}")
             current_span.record_exception(e)
             self.restful_item_invalid_counter.add(1, {"item.type": "CapTask"})
-            raise HTTPException(status_code=422, detail="Invalid captask format")
+            raise HTTPException(status_code=422, detail="Invalid captask format") from e
 
         return self._finalize_item(captask_obj, "CapTask", current_span)
 
@@ -171,7 +159,7 @@ class RestFulHandler:
     # GET /items/{item_hash}
     # -------------------------------------------------------------------------
     @tracer.start_as_current_span("rest_api_check_status")
-    async def _check_status(self, item_hash: str) -> Dict[str, str]:
+    async def _check_status(self, item_hash: str) -> dict[str, str]:
         """
         GET /items/{item_hash} endpoint.
         Checks if the item file exists and returns its processing status.
@@ -192,7 +180,7 @@ class RestFulHandler:
     # GET /tasks/waiting
     # -------------------------------------------------------------------------
     @tracer.start_as_current_span("rest_api_list_waiting")
-    async def _list_waiting(self) -> List[Dict[str, Union[str, Dict]]]:
+    async def _list_waiting(self) -> list[dict[str, str | dict]]:
         """
         GET /tasks/waiting endpoint.
         Lists all items (Task/CapTask) currently waiting for approval.
@@ -205,18 +193,14 @@ class RestFulHandler:
             return waiting_items
 
         for filename in os.listdir(self.waiting_approval_dir):
-            if not filename.lower().endswith('.json'):
+            if not filename.lower().endswith(".json"):
                 continue
             filepath = os.path.join(self.waiting_approval_dir, filename)
             try:
-                with open(filepath, 'r', encoding='utf-8') as f:
+                with open(filepath, encoding="utf-8") as f:
                     data = json.load(f)
                 item_type = self._guess_type(data, filename)
-                waiting_items.append({
-                    "hash": Path(filename).stem,
-                    "type": item_type,
-                    "data": data
-                })
+                waiting_items.append({"hash": Path(filename).stem, "type": item_type, "data": data})
             except Exception as e:
                 self.logger.warning(f"Failed to read waiting file {filename}: {e}")
 
@@ -228,7 +212,7 @@ class RestFulHandler:
     # POST /items/{item_hash}/approve
     # -------------------------------------------------------------------------
     @tracer.start_as_current_span("rest_api_approve_item")
-    async def _approve_item(self, item_hash: str) -> Dict[str, str]:
+    async def _approve_item(self, item_hash: str) -> dict[str, str]:
         """
         POST /items/{item_hash}/approve endpoint.
         Approves a waiting item by moving its file from waiting_approval_dir
@@ -239,7 +223,7 @@ class RestFulHandler:
 
         # Locate file in waiting_approval_dir
         src_path = None
-        for ext in ['.json', '.yaml', '.yml']:
+        for ext in [".json", ".yaml", ".yml"]:
             candidate = os.path.join(self.waiting_approval_dir, f"{item_hash}{ext}")
             if os.path.isfile(candidate):
                 src_path = candidate
@@ -252,21 +236,23 @@ class RestFulHandler:
 
         try:
             # Read file content
-            with open(src_path, 'r', encoding='utf-8') as f:
-                if src_path.endswith(('.yaml', '.yml')):
+            with open(src_path, encoding="utf-8") as f:
+                if src_path.endswith((".yaml", ".yml")):
                     import yaml
+
                     data = yaml.safe_load(f)
                 else:
                     data = json.load(f)
 
             # Update approval flag
-            data['approval'] = True
+            data["approval"] = True
 
             # Write updated file to watch_path
             dest_path = os.path.join(self.watch_path, os.path.basename(src_path))
-            with open(dest_path, 'w', encoding='utf-8') as f:
-                if dest_path.endswith(('.yaml', '.yml')):
+            with open(dest_path, "w", encoding="utf-8") as f:
+                if dest_path.endswith((".yaml", ".yml")):
                     import yaml
+
                     yaml.dump(data, f)
                 else:
                     json.dump(data, f, indent=2)
@@ -283,7 +269,7 @@ class RestFulHandler:
         except Exception as e:
             self.logger.error(f"Failed to approve item {item_hash}: {e}")
             current_span.record_exception(e)
-            raise HTTPException(status_code=500, detail="Approval failed")
+            raise HTTPException(status_code=500, detail="Approval failed") from e
 
     # -------------------------------------------------------------------------
     # Helper methods
@@ -296,16 +282,20 @@ class RestFulHandler:
             self.logger.warning(f"Invalid JSON received: {e}")
             span.record_exception(e)
             self.restful_item_invalid_counter.add(1)
-            raise HTTPException(status_code=400, detail="Invalid JSON body")
+            raise HTTPException(status_code=400, detail="Invalid JSON body") from e
 
-    def _finalize_item(self, item: Union[Task, CapTask], item_type: str, span: trace.Span) -> Dict[str, str]:
+    def _finalize_item(
+        self, item: Task | CapTask, item_type: str, span: trace.Span
+    ) -> dict[str, str]:
         """Write item to file and return hash response."""
-        item_hash = getattr(item, 'hash', None)
+        item_hash = getattr(item, "hash", None)
         if not item_hash:
             self.logger.error(f"{item_type} object missing 'hash' attribute")
             span.set_attribute("error", "missing_hash")
             self.restful_item_invalid_counter.add(1, {"item.type": item_type})
-            raise HTTPException(status_code=500, detail=f"{item_type} object has no hash identifier")
+            raise HTTPException(
+                status_code=500, detail=f"{item_type} object has no hash identifier"
+            )
 
         span.set_attribute("item.hash", item_hash)
 
@@ -317,14 +307,14 @@ class RestFulHandler:
 
         return {"status": "accepted", "hash": item_hash}
 
-    def _write_item_file(self, item: Union[Task, CapTask], item_hash: str, item_type: str) -> str:
+    def _write_item_file(self, item: Task | CapTask, item_hash: str, item_type: str) -> str:
         """Write item to a JSON file in watch_path."""
         ext = ".json"
         file_path = os.path.join(self.watch_path, f"{item_hash}{ext}")
 
-        item_dict = item.to_dict() if hasattr(item, 'to_dict') else item.__dict__
+        item_dict = item.to_dict() if hasattr(item, "to_dict") else item.__dict__
 
-        with open(file_path, 'w', encoding='utf-8') as f:
+        with open(file_path, "w", encoding="utf-8") as f:
             json.dump(item_dict, f, indent=2)
 
         return file_path
@@ -342,7 +332,7 @@ class RestFulHandler:
         waiting_approval_dir = Path(self.waiting_approval_dir)
 
         # Check waiting approval (unapproved items)
-        for ext in ['.json', '.yaml', '.yml']:
+        for ext in [".json", ".yaml", ".yml"]:
             if (waiting_approval_dir / f"{item_hash}{ext}").is_file():
                 return "waiting_approval"
 
@@ -379,9 +369,9 @@ class RestFulHandler:
 
     def _guess_type(self, data: dict, filename: str) -> str:
         """Guess item type from data content or filename."""
-        if 'cap_name' in data and 'args' in data:
+        if "cap_name" in data and "args" in data:
             return "CapTask"
-        elif 'system_prompt' in data or 'prompt_list' in data:
+        elif "system_prompt" in data or "prompt_list" in data:
             return "Task"
         return "Unknown"
 

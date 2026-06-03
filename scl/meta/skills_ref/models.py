@@ -1,7 +1,6 @@
 """Data models for Agent Skills."""
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
@@ -20,9 +19,9 @@ class SkillProperties:
 
     name: str
     description: str
-    license: Optional[str] = None
-    compatibility: Optional[str] = None
-    allowed_tools: Optional[str] = None
+    license: str | None = None
+    compatibility: str | None = None
+    allowed_tools: str | None = None
     metadata: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:

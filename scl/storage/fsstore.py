@@ -47,25 +47,23 @@ Missing features (not in current scope but noted for future):
 - Support for fuzzy name matching in get_cap_by_name.
 """
 
-from pathlib import Path
 import logging
 import pickle
-from typing import Dict, Optional, List, Tuple
+from pathlib import Path
 
 import numpy as np
-from rank_bm25 import BM25Okapi
-
-from scl.meta.capability import Capability
-from scl.meta.functioncall import FunctionCall
-from scl.meta.skills_ref.parser import read_properties
-from scl.storage.base import StoreBase
-from scl.meta.skill import Skill
-from scl.otel.otel import tracer, meter
-from scl.meta.msg import Msg
 from opentelemetry import trace
+from rank_bm25 import BM25Okapi
 
 # Import the embedding service (singleton) and its global embed function
 from scl.embeddings.embedding import embed as generate_embedding
+from scl.meta.capability import Capability
+from scl.meta.functioncall import FunctionCall
+from scl.meta.msg import Msg
+from scl.meta.skill import Skill
+from scl.meta.skills_ref.parser import read_properties
+from scl.otel.otel import meter, tracer
+from scl.storage.base import StoreBase
 
 
 class fsstore(StoreBase):
@@ -73,9 +71,9 @@ class fsstore(StoreBase):
         super().__init__()
         self.path = path
         self.cache_file = Path(self.path) / ".Capability_cache.pkl"
-        self._skill_embedding_cache: Dict[str, dict] = {}
+        self._skill_embedding_cache: dict[str, dict] = {}
         self.embedding_service_on = embedding_service_on
-        self.bm25: Optional[BM25Okapi] = None
+        self.bm25: BM25Okapi | None = None
 
         # Instance logger (following the convention)
         self.logger = logging.getLogger(__name__)
@@ -100,7 +98,7 @@ class fsstore(StoreBase):
             self._load_cache_from_disk()
             self._rebuild_bm25()
 
-    def cache(self) -> Dict[str, dict]:
+    def cache(self) -> dict[str, dict]:
         """Return the in‑memory skill embedding cache."""
         return self._skill_embedding_cache
 
@@ -115,9 +113,7 @@ class fsstore(StoreBase):
                 capability.embedding_description = generate_embedding(capability.description)
             else:
                 capability.embedding_description = None
-            self._skill_embedding_cache[str(item)] = {
-                "Capability": capability
-            }
+            self._skill_embedding_cache[str(item)] = {"Capability": capability}
         except Exception as e:
             self.logger.error("Error reading properties for %s: %s", item, e)
 
@@ -126,7 +122,9 @@ class fsstore(StoreBase):
         try:
             with open(self.cache_file, "wb") as f:
                 pickle.dump(self._skill_embedding_cache, f)
-            self.logger.info("Cache saved to %s (entries: %d)", self.cache_file, len(self._skill_embedding_cache))
+            self.logger.info(
+                "Cache saved to %s (entries: %d)", self.cache_file, len(self._skill_embedding_cache)
+            )
         except Exception as e:
             self.logger.error("Error saving cache to disk: %s", e)
 
@@ -136,7 +134,11 @@ class fsstore(StoreBase):
             try:
                 with open(self.cache_file, "rb") as f:
                     self._skill_embedding_cache = pickle.load(f)
-                self.logger.info("Cache loaded from %s (entries: %d)", self.cache_file, len(self._skill_embedding_cache))
+                self.logger.info(
+                    "Cache loaded from %s (entries: %d)",
+                    self.cache_file,
+                    len(self._skill_embedding_cache),
+                )
             except Exception as e:
                 self.logger.error("Error loading cache from disk: %s", e)
 
@@ -177,12 +179,16 @@ class fsstore(StoreBase):
         for item in dir_path.iterdir():
             if item.is_dir():
                 self.load_skill(item)
-        self.logger.info("Cache refresh completed, total skills: %d", len(self._skill_embedding_cache))
+        self.logger.info(
+            "Cache refresh completed, total skills: %d", len(self._skill_embedding_cache)
+        )
         self._rebuild_bm25()
         self._save_cache_to_disk()
 
     @tracer.start_as_current_span("insert_capability")
-    def insert_capability(self, capability: Capability, force: bool = False, similarity_threshold: float = 0.8) -> Capability:
+    def insert_capability(
+        self, capability: Capability, force: bool = False, similarity_threshold: float = 0.8
+    ) -> Capability:
         """
         Add a new capability to the store.
         Always checks uniqueness of name and description; raises ValueError if a duplicate exists.
@@ -208,9 +214,11 @@ class fsstore(StoreBase):
         self.insert_counter.add(1)
         current_span = trace.get_current_span()
         current_span.set_attribute("capability.name", capability.name)
-        current_span.set_attribute("capability.description", capability.description[:100] if capability.description else "")
+        current_span.set_attribute(
+            "capability.description", capability.description[:100] if capability.description else ""
+        )
         current_span.set_attribute("force", force)
-        
+
         # Uniqueness check on exact name and description
         for data in self._skill_embedding_cache.values():
             cur = data["Capability"]
@@ -241,13 +249,17 @@ class fsstore(StoreBase):
                 for data in self._skill_embedding_cache.values():
                     cur = data["Capability"]
                     if cur.embedding_description is not None:
-                        sim = self.cosine_similarity(capability.embedding_description, cur.embedding_description)
+                        sim = self.cosine_similarity(
+                            capability.embedding_description, cur.embedding_description
+                        )
                         if sim > max_sim:
                             max_sim = sim
                             most_similar_cap = cur
                 if max_sim >= similarity_threshold:
-                    msg = (f"Similar capability already exists (max cosine similarity {max_sim:.4f} >= threshold "
-                           f"{similarity_threshold}). Use force=True to insert anyway.")
+                    msg = (
+                        f"Similar capability already exists (max cosine similarity {max_sim:.4f} >= threshold "
+                        f"{similarity_threshold}). Use force=True to insert anyway."
+                    )
                     self.logger.error(msg)
                     current_span.set_attribute("error", True)
                     exc = ValueError(msg)
@@ -273,7 +285,7 @@ class fsstore(StoreBase):
         return capability
 
     @tracer.start_as_current_span("get_cap_by_name")
-    def get_cap_by_name(self, name: str) -> Optional[Capability]:
+    def get_cap_by_name(self, name: str) -> Capability | None:
         """Return a Capability by its exact name, or None if not found."""
         self.get_name_counter.add(1)
         current_span = trace.get_current_span()
@@ -312,8 +324,14 @@ class fsstore(StoreBase):
         return np.tanh(scores)
 
     @tracer.start_as_current_span("search_by_similarity")
-    def search_by_similarity(self, msg: Msg, limit: int = 5, min_similarity: float = 0.5,
-                             combine_method: Optional[str] = None, alpha: float = 0.5) -> Dict[str, Capability]:
+    def search_by_similarity(
+        self,
+        msg: Msg,
+        limit: int = 5,
+        min_similarity: float = 0.5,
+        combine_method: str | None = None,
+        alpha: float = 0.5,
+    ) -> dict[str, Capability]:
         """
         Semantically search for capabilities.
 
@@ -343,10 +361,14 @@ class fsstore(StoreBase):
             current_span.set_attribute("search.alpha", alpha)
 
         # Collect all (path, Capability) pairs
-        items: List[Tuple[str, Capability]] = [(path, data["Capability"]) for path, data in self._skill_embedding_cache.items()]
+        items: list[tuple[str, Capability]] = [
+            (path, data["Capability"]) for path, data in self._skill_embedding_cache.items()
+        ]
 
         # Determine if embedding can be used
-        use_embedding = self.embedding_service_on and hasattr(msg, "embed") and msg.embed is not None
+        use_embedding = (
+            self.embedding_service_on and hasattr(msg, "embed") and msg.embed is not None
+        )
 
         # Precompute BM25 scores if they might be needed
         bm25_raw = None
@@ -362,23 +384,33 @@ class fsstore(StoreBase):
         emb_sims = None
         if combine_method is not None and use_embedding:
             query_embedding = msg.embed
-            emb_sims = np.array([self.cosine_similarity(query_embedding, cap.embedding_description)
-                                 for _, cap in items])
+            emb_sims = np.array(
+                [
+                    self.cosine_similarity(query_embedding, cap.embedding_description)
+                    for _, cap in items
+                ]
+            )
 
         scored = []
         if combine_method is None:
             # Original behavior: embedding if available, else BM25 with min‑max
             if use_embedding:
                 query_embedding = msg.embed
-                for idx, (path, cap) in enumerate(items):
-                    sim = self.cosine_similarity(query_embedding, cap.embedding_description) if cap.embedding_description is not None else 0.0
+                for _idx, (path, cap) in enumerate(items):
+                    sim = (
+                        self.cosine_similarity(query_embedding, cap.embedding_description)
+                        if cap.embedding_description is not None
+                        else 0.0
+                    )
                     self.logger.debug("Embedding similarity with '%s': %.4f", path, sim)
                     if sim >= min_similarity:
                         scored.append((sim, path, cap))
                 scored.sort(key=lambda x: x[0], reverse=True)
             else:
                 if bm25_raw is None or len(bm25_raw) == 0:
-                    self.logger.warning("BM25 scores could not be computed, returning empty results")
+                    self.logger.warning(
+                        "BM25 scores could not be computed, returning empty results"
+                    )
                     return {}
                 norm_scores = self._minmax_normalize(bm25_raw)
                 for idx, (path, cap) in enumerate(items):
@@ -399,7 +431,10 @@ class fsstore(StoreBase):
                         if combined >= min_similarity:
                             scored.append((combined, path, cap))
                 else:
-                    self.logger.warning("Embedding required for method %s but unavailable, falling back to min‑max BM25", combine_method)
+                    self.logger.warning(
+                        "Embedding required for method %s but unavailable, falling back to min‑max BM25",
+                        combine_method,
+                    )
                     for idx, (path, cap) in enumerate(items):
                         sim = float(norm_bm25[idx])
                         if sim >= min_similarity:
@@ -412,7 +447,10 @@ class fsstore(StoreBase):
                         if combined >= min_similarity:
                             scored.append((combined, path, cap))
                 else:
-                    self.logger.warning("Embedding required for method %s but unavailable, falling back to sigmoid BM25", combine_method)
+                    self.logger.warning(
+                        "Embedding required for method %s but unavailable, falling back to sigmoid BM25",
+                        combine_method,
+                    )
                     for idx, (path, cap) in enumerate(items):
                         sim = float(sig_bm25[idx])
                         if sim >= min_similarity:
@@ -425,7 +463,10 @@ class fsstore(StoreBase):
                         if combined >= min_similarity:
                             scored.append((combined, path, cap))
                 else:
-                    self.logger.warning("Embedding required for method %s but unavailable, falling back to tanh BM25", combine_method)
+                    self.logger.warning(
+                        "Embedding required for method %s but unavailable, falling back to tanh BM25",
+                        combine_method,
+                    )
                     for idx, (path, cap) in enumerate(items):
                         sim = float(tanh_bm25[idx])
                         if sim >= min_similarity:
@@ -445,7 +486,9 @@ class fsstore(StoreBase):
                     if combined >= min_similarity:
                         scored.append((combined, path, cap))
             else:
-                self.logger.error("Unknown combine method '%s', falling back to min‑max BM25", combine_method)
+                self.logger.error(
+                    "Unknown combine method '%s', falling back to min‑max BM25", combine_method
+                )
                 norm_bm25 = self._minmax_normalize(bm25_raw)
                 for idx, (path, cap) in enumerate(items):
                     sim = float(norm_bm25[idx])
@@ -458,10 +501,8 @@ class fsstore(StoreBase):
         current_span.set_attribute("search.total_matches", len(top))
 
         result = {}
-        for sim, path, cap in top:
-            result[cap.name] = FunctionCall(
-                name=cap.name, description=cap.description
-            )
+        for _sim, _path, cap in top:
+            result[cap.name] = FunctionCall(name=cap.name, description=cap.description)
         return result
 
     @tracer.start_as_current_span("record_cap_history")
@@ -474,7 +515,9 @@ class fsstore(StoreBase):
         self.logger.debug("record() called but not implemented (msg=%s, cap=%s)", msg, cap)
 
     @tracer.start_as_current_span("getCapsByHistory")
-    def getCapsByHistory(self, msg: Msg, limit: int = 5, min_similarity: float = 0.5) -> Dict[str, Capability]:
+    def getCapsByHistory(
+        self, msg: Msg, limit: int = 5, min_similarity: float = 0.5
+    ) -> dict[str, Capability]:
         """
         Retrieve capabilities based on usage history.
         NOTE: Not implemented to avoid unbounded on‑disk storage.
@@ -496,6 +539,7 @@ class fsstore(StoreBase):
         if norm_vec1 == 0 or norm_vec2 == 0:
             return 0.0
         return float(dot_product / (norm_vec1 * norm_vec2))
+
 
 """
 Example usage:

@@ -1,10 +1,11 @@
 import json
 import logging
-from scl.otel.otel import tracer
+
 from scl.cap_reg import CapRegistry
-from scl.meta.msg import Msg
 from scl.config import config
-from scl.otel.otel import cap_counts
+from scl.meta.msg import Msg
+from scl.otel.otel import cap_counts, tracer
+
 
 ## why not we just prvide the metrics and leave the function to user themself?
 ## using hooks to provide user capbility to overwrite the default behavior
@@ -17,39 +18,43 @@ from scl.otel.otel import cap_counts
 #### using cache value into hook
 @tracer.start_as_current_span("send_messages")
 def send_messages(
-        client, model, 
-        cap_registry:CapRegistry, 
-        ToolNames, # todo here, support both name and give Cap
-        msg:Msg, 
-        Turns):
-    if Turns == 0: 
+    client,
+    model,
+    cap_registry: CapRegistry,
+    ToolNames,  # todo here, support both name and give Cap
+    msg: Msg,
+    Turns,
+):
+    if Turns == 0:
         ## to do an autonomy sider
         ### hook of overwrite limit
         limit = config.limit
         ### hook of overwrite min_similarity
         min_similarity = config.min_similarity
         tools_named = cap_registry.getCapsByNames(ToolNames)
-        ## metrics 
+        ## metrics
         ### search time,search number
         ### a key-value cache for information
         tools_autonomy = cap_registry.getCapsBySimilarity(msg, limit, min_similarity)
-        ## metrics 
+        ## metrics
         ### search time,search number
         ### a key-value cache for information
         tools_history = cap_registry.getCapsByHistory(msg, limit, min_similarity)
-        ## metrics 
+        ## metrics
         ### search time,search number
         ### a key-value cache for information
 
         ### to do an autonomy sider hook?
-        tools_merged = {    
+        tools_merged = {
             **({} if tools_named is None else tools_named),
             **({} if tools_autonomy is None else tools_autonomy),
-            **({} if tools_history is None else tools_history)
+            **({} if tools_history is None else tools_history),
         }
         cap_counts["total"] = len(tools_merged)
-        cap_counts["duplicate"] = len(tools_named) + len(tools_autonomy) + len(tools_history) - cap_counts["total"]
-        ## metrics tool number,metrics as duplicate number? 
+        cap_counts["duplicate"] = (
+            len(tools_named) + len(tools_autonomy) + len(tools_history) - cap_counts["total"]
+        )
+        ## metrics tool number,metrics as duplicate number?
         ## or a cache for duplicate info
         tools = []
         for tool in list(tools_merged.values()):
@@ -60,29 +65,25 @@ def send_messages(
         logging.info(msg)
         # Build request parameters - only include tools if not empty
         # Some APIs (like DashScope) don't accept empty tools list
-        request_params = {
-            "model": model,
-            "messages": msg.messages
-        }
+        request_params = {"model": model, "messages": msg.messages}
         if tools:  # Only add tools parameter if tools list is not empty
             request_params["tools"] = tools
-        
+
         response = client.chat.completions.create(**request_params)
         return response.choices[0].message
     else:
-        response = client.chat.completions.create(
-            model=model,
-            messages=msg.messages
-                )
+        response = client.chat.completions.create(model=model, messages=msg.messages)
         return response.choices[0].message
+
 
 @tracer.start_as_current_span("function_call_playground")
 def function_call_playground(
-    client, model, 
-    cap_registry:CapRegistry,
+    client,
+    model,
+    cap_registry: CapRegistry,
     ToolNames,
-    msg:Msg,
-    ): 
+    msg: Msg,
+):
     turns = 0
     ## metric execution time
     response = send_messages(client, model, cap_registry, ToolNames, msg, turns)
@@ -98,7 +99,7 @@ def function_call_playground(
             func1_args = tool_call.function.arguments
             ## todo-> debug/trace
             logging.info(f"func1_name: {func1_name}, func1_args: {func1_args}")
-            args_dict = json.loads(func1_args)
+            args_dict = json.loads(func1_args)  # noqa: F841 - TODO: wire into call_cap_safe below
             cap = cap_registry.get_cap_by_name(func1_name)
             # todo
             # func1_out = cap_registry.call_cap_safe(cap,args_dict)
@@ -106,7 +107,7 @@ def function_call_playground(
             cap_registry.record(msg, cap)
 
             msg.append(response)
-            msg.append_cap_result(func1_out, tool_call.id)
+            msg.append_cap_result(func1_out, tool_call.id)  # noqa: F821 - TODO: func1_out undefined (call above is commented out)
         ## metric execution time
         response = send_messages(client, model, cap_registry, ToolNames, msg, turns)
     else:

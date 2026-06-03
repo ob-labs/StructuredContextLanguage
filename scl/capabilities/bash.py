@@ -15,20 +15,21 @@ Features and design goals
 - OpenTelemetry integrated for tracing, metrics, and structured logging.
 - Logger provides info and debug levels.
 """
+
 import logging
 import os
 import subprocess
-from typing import Dict, Any, Optional, List
+from typing import Any
 
 from opentelemetry import trace
-from scl.otel.otel import tracer, meter
+
 from scl.meta.capability import Capability
+from scl.otel.otel import meter, tracer
 
 logger = logging.getLogger(__name__)
 
 bash_execution_counter = meter.create_counter(
-    "bash_command.executed",
-    description="Number of times a bash command was executed"
+    "bash_command.executed", description="Number of times a bash command was executed"
 )
 
 # Patterns that indicate dangerous commands (case‑insensitive)
@@ -38,7 +39,7 @@ DANGEROUS_PATTERNS = [
     "sudo",
     "mkfs",
     "dd if=",
-    ":(){ :|:& };:",          # fork bomb
+    ":(){ :|:& };:",  # fork bomb
     "chmod 777",
     "wget",
     "curl",
@@ -61,9 +62,9 @@ class BashFunctionCall(Capability):
         name: str,
         description: str,
         original_body: str,
-        llm_description: Optional[str] = None,
-        function_impl: Optional[str] = None,
-        allowed_directories: Optional[List[str]] = None,
+        llm_description: str | None = None,
+        function_impl: str | None = None,
+        allowed_directories: list[str] | None = None,
     ):
         current_span = trace.get_current_span()
         current_span.set_attribute("bash_function_call.name", name)
@@ -94,7 +95,7 @@ class BashFunctionCall(Capability):
         logger.info("BashFunctionCall '%s' created", name)
 
     @staticmethod
-    def _is_dangerous(command: str) -> Optional[str]:
+    def _is_dangerous(command: str) -> str | None:
         """Check if the command contains a dangerous pattern."""
         command_lower = command.lower()
         for pattern in DANGEROUS_PATTERNS:
@@ -103,7 +104,7 @@ class BashFunctionCall(Capability):
         return None
 
     @tracer.start_as_current_span("BashFunctionCall.execute")
-    def execute(self, args_dict: Dict[str, Any]) -> str:
+    def execute(self, args_dict: dict[str, Any]) -> str:
         """
         Format the command with `args_dict`, perform safety checks, and run it.
 
@@ -205,10 +206,7 @@ class BashFunctionCall(Capability):
         return stdout
 
     def __repr__(self) -> str:
-        return (
-            f"BashFunctionCall(name='{self.name}', "
-            f"allowed_dirs={self.allowed_directories})"
-        )
+        return f"BashFunctionCall(name='{self.name}', allowed_dirs={self.allowed_directories})"
 
 
 """

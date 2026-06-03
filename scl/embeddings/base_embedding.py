@@ -11,7 +11,7 @@ import logging
 from abc import ABC, abstractmethod
 
 from scl.otel.otel import meter
-from opentelemetry import trace
+
 
 class BaseEmbeddingClient(ABC):
     _instances = {}
@@ -31,7 +31,7 @@ class BaseEmbeddingClient(ABC):
         self._initialized = True
         self._init_subclass()
 
-    def _init_subclass(self):
+    def _init_subclass(self):  # noqa: B027 - optional hook for subclasses
         pass
 
     @abstractmethod

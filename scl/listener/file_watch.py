@@ -2,7 +2,7 @@
 File Watcher for Todo Items
 1. read files from a specific folder.
 2. if the file is task is scl.meta.task format (either json or yaml), accept format file.
-2.1 it converts the task from file into a task instance 
+2.1 it converts the task from file into a task instance
 2.1.1 if the task instance got approval put into queue as a TaskQueue instance and move the file into processed folder.
 2.1.2 if the task instance is not got approval put into waitingapproval folder and move the file into waitingapproval folder.
 2.1.3 if the task instance has CapTask to completed put into waitingCapTask queue and move the file into waitingCapTask folder.
@@ -13,25 +13,25 @@ File Watcher for Todo Items
 
 4. if the file is not supported format, move the file into failed folder.
 """
+
+import json
 import logging
 import os
 import shutil
-import json
-import yaml
 from pathlib import Path
-from typing import Optional
 
+import yaml
+from opentelemetry import trace
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from scl.queue.taskQueue import TaskQueue
-from scl.queue.capTaskQueues import CapabilityTaskQueues
-from scl.queue.awaitingApproveQueue import AwaitingApproveQueue
-from scl.queue.awaitingCapTasksQueue import AwaitingCapTasksQueue
-from scl.meta.task import Task
 from scl.meta.captask import CapTask
-from scl.otel.otel import tracer, meter
-from opentelemetry import trace
+from scl.meta.task import Task
+from scl.otel.otel import meter, tracer
+from scl.queue.awaiting_approve_queue import AwaitingApproveQueue
+from scl.queue.awaiting_cap_tasks_queue import AwaitingCapTasksQueue
+from scl.queue.cap_task_queues import CapabilityTaskQueues
+from scl.queue.task_queue import TaskQueue
 
 
 class FileHandler(FileSystemEventHandler):
@@ -46,7 +46,7 @@ class FileHandler(FileSystemEventHandler):
         task_queue: TaskQueue,
         captask_queue: CapabilityTaskQueues,
         waiting_approval_queue: AwaitingApproveQueue,
-        waiting_captask_queue: AwaitingCapTasksQueue
+        waiting_captask_queue: AwaitingCapTasksQueue,
     ):
         self.watch_path = watch_path
         self.task_queue = task_queue
@@ -70,28 +70,24 @@ class FileHandler(FileSystemEventHandler):
 
         # Metrics
         self.file_receive_counter = meter.create_counter(
-            "file_receive",
-            description="Total number of files detected"
+            "file_receive", description="Total number of files detected"
         )
         self.task_file_approved_counter = meter.create_counter(
-            "task_file_approved",
-            description="Number of Task files that were approved and queued"
+            "task_file_approved", description="Number of Task files that were approved and queued"
         )
         self.task_file_unapproved_counter = meter.create_counter(
             "task_file_unapproved",
-            description="Number of Task files that lacked approval and were moved to waiting"
+            description="Number of Task files that lacked approval and were moved to waiting",
         )
         self.task_file_pending_captasks_counter = meter.create_counter(
             "task_file_pending_captasks",
-            description="Number of Task files with incomplete CapTasks moved to waiting"
+            description="Number of Task files with incomplete CapTasks moved to waiting",
         )
         self.captask_file_valid_counter = meter.create_counter(
-            "captask_file_valid",
-            description="Number of files successfully processed as CapTask"
+            "captask_file_valid", description="Number of files successfully processed as CapTask"
         )
         self.file_invalid_counter = meter.create_counter(
-            "file_invalid",
-            description="Number of files that failed validation or conversion"
+            "file_invalid", description="Number of files that failed validation or conversion"
         )
 
     @tracer.start_as_current_span("file_watcher_on_created")
@@ -111,7 +107,9 @@ class FileHandler(FileSystemEventHandler):
 
         # Step 1: Validate file extension
         if not self._is_supported_extension(filepath):
-            self.logger.warning(f"File {filename} is not a supported format (JSON/YAML). Moving to failed.")
+            self.logger.warning(
+                f"File {filename} is not a supported format (JSON/YAML). Moving to failed."
+            )
             self.file_invalid_counter.add(1)
             self._move_to_failed(filepath, reason="unsupported_extension")
             return
@@ -142,11 +140,11 @@ class FileHandler(FileSystemEventHandler):
 
     def _is_supported_extension(self, filepath: str) -> bool:
         ext = Path(filepath).suffix.lower()
-        return ext in ('.json', '.yaml', '.yml')
+        return ext in (".json", ".yaml", ".yml")
 
     def _parse_file(self, filepath: str) -> dict:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            if filepath.lower().endswith('.json'):
+        with open(filepath, encoding="utf-8") as f:
+            if filepath.lower().endswith(".json"):
                 return json.load(f)
             else:
                 return yaml.safe_load(f)
@@ -181,7 +179,9 @@ class FileHandler(FileSystemEventHandler):
                 span.set_attribute("task.approval", True)
                 span.set_attribute("task.pending_captasks", True)
                 span.set_attribute("task.routed_to", "waiting_captasks")
-                self.logger.info(f"Task {task_obj.hash} has pending CapTasks, moved to waitingCapTask")
+                self.logger.info(
+                    f"Task {task_obj.hash} has pending CapTasks, moved to waitingCapTask"
+                )
             else:
                 # Fully ready -> TaskQueue
                 self.task_queue.add(task_obj)
@@ -275,10 +275,10 @@ class FileHandler(FileSystemEventHandler):
 
 """
     Example usage:
-        from scl.queue.taskQueue import TaskQueue
+        from scl.queue.task_queue import TaskQueue
         from scl.queue.capabilityTaskQueues import CapabilityTaskQueues
-        from scl.queue.awaitingApproveQueue import AwaitingApproveQueue
-        from scl.queue.awaitingCapTasksQueue import AwaitingCapTasksQueue
+        from scl.queue.awaiting_approve_queue import AwaitingApproveQueue
+        from scl.queue.awaiting_cap_tasks_queue import AwaitingCapTasksQueue
         from watchdog.observers import Observer
         from file_handler import FileHandler  # adjust import
 

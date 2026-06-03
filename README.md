@@ -1,74 +1,182 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/SCL-v0.1.0-blue?style=for-the-badge&labelColor=1a1a2e">
+  <img alt="SCL v0.1.0" src="https://img.shields.io/badge/SCL-v0.1.0-blue?style=for-the-badge">
+</picture>
+<br>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/python-≥3.11-3776AB?style=flat&logo=python&logoColor=white">
+  <img alt="Python ≥3.11" src="https://img.shields.io/badge/python-≥3.11-3776AB?style=flat&logo=python&logoColor=white">
+</picture>
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green?style=flat" alt="License"></a>
+<a href="https://github.com/Teingi/StructuredContextLanguage/actions/workflows/test.yaml"><img src="https://github.com/Teingi/StructuredContextLanguage/actions/workflows/test.yaml/badge.svg" alt="CI"></a>
+
 # Structured Context Language (SCL)
 
-## Vision
+**A standardized agent loop runtime for context engineering.**  
+SCL is a middleware layer for LLM-powered agents — analogous to what SQL is for databases and Hibernate is for Java.
 
-Everyone is familiar with SQL for interacting with databases. In the era of large language models, our focus is shifting from prompt engineering to context engineering.
+---
 
-In this project, we aim to build a Structured Context Language (SCL), drawing on the practices of context engineering to occupy a niche similar to that of SQL.
+## Overview
 
-Through this practice, we hope to distill a middleware layer. This middleware will provide a standardized interface for agents, playing a role analogous to Hibernate for Java applications.
+Context engineering decomposes LLM interaction into three independent dimensions, unified into one event-driven runtime:
 
-## Deconstructing SCL
+| Dimension | Description | Nature |
+|-----------|-------------|--------|
+| **Business Content** | Instructions tailored to specific prompts and scenarios | The "query" |
+| **Tool Calling** | Functions, MCP, and skills that fetch or mutate external data | Spatial expansion |
+| **Memory Management** | Selecting relevant history from multi-turn conversations | Temporal expansion |
 
-If we treat a prompt as a query language for large language models (LLMs), then context engineering is certainly one implementation of that query language. We can deconstruct context engineering along three independent dimensions:
+SCL provides a pluggable, observable agent loop that handles all three dimensions through a **standardized interface** — so you focus on your business logic, not the plumbing.
 
-- **Business content**: Concrete instructions tailored to specific prompts and scenarios.
-- **Tool calling**: Various tools available to the LLM to fetch additional external data.
-- **Memory management**: In multi-turn conversations, deciding which historical content is relevant to the current query.
+---
 
-> We can view tool calling as a spatial expansion of information, and memory management as a temporal expansion of information.
+## Features
 
-In engineering practice, we can manage memory through tool calls. Therefore, within context engineering, the expansion of information can be accomplished via a standardized interface, which can be further distilled into a standardized workflow.
+- **Unified Provider Interface** — Anthropic, OpenAI, Google, xAI, Groq, OpenRouter, and any OpenAI-compatible endpoint via a single API
+- **RAG-based Tool Selection** — Progressively loads relevant tool definitions using BM25 + embedding hybrid search, avoiding context bloat
+- **File-first Persistence** — File system as the backbone; REST API validates and delegates to file watcher for decoupling
+- **Pluggable Storage** — File system, OceanBase, and PostgreSQL/pgvector backends via a common `StoreBase` interface
+- **Composite Embedding** — Cache → local (SentenceTransformer) → web API (OpenAI-compatible) with automatic fallback
+- **Observability** — Full OpenTelemetry instrumentation (traces, metrics, structured logs) across all components
+- **Built-in Toolset** — File read/write, grep, bash, git, cron — extensible via capability registration
+- **Multiple Runtime Forms** — RESTful service, interactive TUI, or direct library import
+- **Minimalist Core** — No built-in planners, sub-agents, or background processes; you control the orchestration
 
-Inspired by the progressive loading mechanism of Claude Skills, we also see that between different tools, progressive loading can allow the model to autonomously select tools. Unlike stored procedures that are explicitly defined and called in SQL, this provides extra autonomy through progressive loading.
+---
 
-## SCL Agent Loop: A Unified Agent Runtime
+## Quick Start
 
-Building on the above ideas, SCL provides a standardized agent loop as the runtime middleware for context engineering. It unifies the processing of these three dimensions into an event-driven execution model.
+```bash
+# Install
+pip install -e .
 
-### Design Principles
+# Start the service
+scl
 
-- **Minimalist YOLO Mode**  
-  No built-in TODO lists, planning, sub-agents, or background bash processes. Developers externalize state through files, compose tools through bash, and implement skill execution by spawning new tasks. We want the framework to do one thing——run an agent——and give the user full control and observability.
+# Submit a task via REST API
+curl -X POST http://localhost:8080/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"system_prompt": "You are a helpful assistant.", "capacity": ["bash", "file_read"]}'
 
-- **Unified Provider Interface**  
-  A single API supporting Anthropic, OpenAI, Google, xAI, Groq, Cerebras, OpenRouter, and any OpenAI-compatible endpoint. Provides streaming, tool calls with TypeBox schema validation, reasoning/thinking support, seamless cross-provider context handoff, and token and cost tracking.
+# Or drop a file into the watch directory
+echo '{"system_prompt": "Hello"}' > ./todo_folder/task.json
+```
 
-- **Tool Registration and Selection**  
-  Built-in tool registry that maintains tool metadata and descriptions. The agent uses a RAG-based mechanism to progressively load available tools, injecting only the relevant tool definitions into the context when needed. This avoids context bloat from full tool descriptions and preserves model autonomy while respecting progressive loading.
+See the [Getting Started Guide](doc/04-getting-started.md) for full instructions.
 
-- **Pluggable Content Compression**  
-  A hot-swappable interface for content compression strategies. During long conversations, a customizable compressor can distill historical messages to reduce token consumption while retaining critical information, improving stability for long-running agents.
+---
 
-- **Prompt Templates**  
-  Structured template support for business content, facilitating reuse, version management, and team collaboration. Templates can incorporate proven prompt patterns from context engineering practice.
+## Use as a Library
 
-- **Multiple Runtime Forms**  
-  - **RESTful (containerized)** — Deployed as a service, providing API access.  
-  - **Local TUI** — Interactive terminal usage with slash commands and session management.  
-  - **Library** — Directly imported for secondary development and deep integration.
+```python
+from scl.meta.task import Task
+from scl.queue.task_queue import TaskQueue
+from scl.processor.task_processor import TaskProcessor
 
-- **Observability**  
-  Transparent event streaming across the entire workflow: tool call parameters and results, every incremental model output, and internal state changes are all traceable. This is essential for debugging, evaluation, and building trust.
+queue = TaskQueue()
+processor = TaskProcessor(queue)
+processor.start()
 
-- **Built-in Toolset**  
-  Out-of-the-box tools covering common coding and operations tasks:
-  - File read/write
-  - Search (grep, find)
-  - Bash
-  - Git
-  - Create cron jobs
-  - Other tools available for function call branching
+task = Task(system_prompt="You are a helpful assistant.")
+queue.add(task)  # auto-notifies the processor
+```
 
-  Tools can be extended through the registration mechanism, supporting both native implementations and CLI-wrapped commands.
+---
 
-### How It Reflects SCL’s Philosophy
+## Documentation
 
-- **Unified Information Expansion**  
-  Both tool calling (spatial expansion) and memory management (temporal expansion) are handled within the agent loop through the same standardized tool interface. Memory management is no longer a special internal mechanism; it is invoked, recorded, and observed like any other tool.
+| Document | Description |
+|----------|-------------|
+| [Overview & Philosophy](doc/01-overview.md) | Vision, design principles, and philosophy |
+| [Architecture](doc/02-architecture.md) | Component breakdown, data flow, and system design |
+| [Core Concepts](doc/03-core-concepts.md) | Task, Capability, CapRegistry, Embedding, Storage, Queues, Processors |
+| [Getting Started](doc/04-getting-started.md) | Installation, configuration, and quick start |
+| [SDK Reference](doc/05-sdk-reference.md) | API reference and common usage patterns |
+| [Development Roadmap](doc/06-development.md) | Status, roadmap, and contributing |
 
-- **Progressive Loading Engineered**  
-  The RAG-based tool selection extends the progressive loading concept from “skill files” to all tools. The model first understands the need, then fetches tool descriptions on demand, and autonomously decides which resources to use. This balances context efficiency with autonomy.
+### Research
 
-- **Middleware Positioning**  
-  Just as Hibernate provides a standard abstraction for persistence in Java applications, the SCL Agent Loop aims to provide a standardized interface for context management in agent applications. It encapsulates provider differences, tool execution, compression strategies, and runtime modes, allowing developers to focus on business prompts and task-flow design.
+- [A Way to Auto-Scaling Capabilities for Agents](doc/blog/A%20way%20to%20auto%20scaling%20capabilities%20for%20Agent.md) — RAG-based tool selection evaluated against BFCL, MCPToolBench++, and ToolE benchmarks
+
+---
+
+## Architecture in Brief
+
+```
+Listeners (REST / File Watch / Internal)
+        │
+        ▼  (write files)
+todo_folder/  ─── file-based persistence layer
+        │
+        ▼
+  Queue System  ─── TaskQueue, CapabilityTaskQueues, Awaiting Queues
+        │
+        ▼
+ Processors  ─── TaskProcessor, CapTaskProcessor, Awaiting Processors
+        │
+        ▼
+ Core Services  ─── CapRegistry (RAG), Embedding, Storage, LLM Chat
+        │
+        ▼
+ Observability  ─── OpenTelemetry (traces, metrics, logs)
+```
+
+---
+
+## Project Status
+
+**Current version: 0.1.0** — Active development.
+
+| Area | Status |
+|------|--------|
+| Core agent loop | ✅ Stable |
+| RAG tool selection | ✅ Stable (BM25 + Embedding hybrid) |
+| REST & file watch | ✅ Operational |
+| Storage backends | ✅ fsstore, ⏳ OceanBase, ⏳ pgvector |
+| Docker deployment | ✅ Ready |
+| WebSocket hooks | 📋 Planned |
+| Debug framework | 📋 Planned |
+
+See [Development Roadmap](doc/06-development.md).
+
+---
+
+## Benchmarks
+
+SCL's RAG-based capability selection has been evaluated against industry benchmarks:
+
+| Benchmark | Type | Top-5 Recall |
+|-----------|------|-------------|
+| BFCL (multiple) | Function call selection | 95.2% |
+| BFCL (parallel) | Parallel function calls | 93.8% |
+| MCPToolBench++ (single) | MCP tool selection | 99.6% |
+| ToolE (Qwen3-Embedding) | Tool selection | 83.7% |
+
+Details in the [research paper](doc/blog/A%20way%20to%20auto%20scaling%20capabilities%20for%20Agent.md).
+
+---
+
+## Contributing
+
+```bash
+# Setup
+pip install -e ".[dev]"
+
+# Run checks
+make lint        # ruff linter
+make typecheck   # mypy
+make test        # pytest with coverage
+make check       # all of the above
+
+# See all targets
+make help
+```
+
+Pull requests are welcome. Please maintain OpenTelemetry instrumentation and structured logging for new components.
+
+---
+
+## License
+
+[Apache License 2.0](LICENSE)

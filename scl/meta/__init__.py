@@ -5,9 +5,9 @@
 __version__ = "0.1.0"
 
 # Import main classes for convenience
-from .task import Task
-from .captask import CapTask
 from .capability import Capability
+from .captask import CapTask
 from .functioncall import FunctionCall
 from .msg import Msg as Message
 from .skill import Skill
+from .task import Task

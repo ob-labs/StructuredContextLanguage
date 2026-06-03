@@ -30,21 +30,21 @@ Missing/Optional Features (reserved for community contributions):
 - Automatic tool schema generation from docstrings.
 """
 
-import sys
-import os
 import logging
-from typing import List, Dict
+import os
+import sys
+
+from opentelemetry import trace
+
 from scl.meta.capability import Capability
 from scl.otel.metric_decorator import record_latency
-from scl.otel.otel import search_time_histogram, tool_execute_time_histogram
-from scl.otel.otel import tracer, meter
-from opentelemetry import trace
+from scl.otel.otel import meter, search_time_histogram, tracer
 
 # Add the StructuredContextLanguage directory to the path
 scl_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(scl_root)
-from scl.storage.base import StoreBase
 from scl.meta.msg import Msg
+from scl.storage.base import StoreBase
 
 
 class CapRegistry:
@@ -76,13 +76,12 @@ class CapRegistry:
         self.logger = logging.getLogger(__name__)
         # Create a counter to track capability retrievals
         self.cap_fetch_counter = meter.create_counter(
-            "capability.fetches",
-            description="Number of capability retrievals by method type"
+            "capability.fetches", description="Number of capability retrievals by method type"
         )
         # ---------------------------------------------------------
 
     @tracer.start_as_current_span("getCapsByNames")
-    def getCapsByNames(self, ToolNames: List[str]) -> Dict[str, Capability]:
+    def getCapsByNames(self, ToolNames: list[str]) -> dict[str, Capability]:
         """
         Retrieve multiple capabilities by their exact names.
 
@@ -155,7 +154,9 @@ class CapRegistry:
 
     @tracer.start_as_current_span("getCapsBySimilarity")
     @record_latency(search_time_histogram, "search")
-    def getCapsBySimilarity(self, msg: Msg, limit: int = 5, min_similarity: float = 0.5) -> Dict[str, Capability]:
+    def getCapsBySimilarity(
+        self, msg: Msg, limit: int = 5, min_similarity: float = 0.5
+    ) -> dict[str, Capability]:
         """
         Perform a semantic (RAG-like) search for capabilities based on message context.
 
@@ -187,8 +188,10 @@ class CapRegistry:
         current_span.set_attribute("limit", limit)
         current_span.set_attribute("min_similarity", min_similarity)
         # Avoid logging large messages; record first 100 chars
-        if msg and hasattr(msg, 'content'):
-            snippet = str(msg.content)[:100] + "..." if len(str(msg.content)) > 100 else str(msg.content)
+        if msg and hasattr(msg, "content"):
+            snippet = (
+                str(msg.content)[:100] + "..." if len(str(msg.content)) > 100 else str(msg.content)
+            )
             current_span.set_attribute("message_content_preview", snippet)
 
         self.logger.debug(f"Semantic search with limit={limit}, min_similarity={min_similarity}")
@@ -222,8 +225,10 @@ class CapRegistry:
         """
         current_span = trace.get_current_span()
         if cap:
-            current_span.set_attribute("capability_name", cap.name if hasattr(cap, 'name') else "unknown")
-        if msg and hasattr(msg, 'id'):
+            current_span.set_attribute(
+                "capability_name", cap.name if hasattr(cap, "name") else "unknown"
+            )
+        if msg and hasattr(msg, "id"):
             current_span.set_attribute("message_id", str(msg.id))
 
         self.logger.debug(f"Recording usage of capability '{cap.name if cap else 'None'}'")
@@ -233,7 +238,9 @@ class CapRegistry:
 
     @tracer.start_as_current_span("getCapsByHistory")
     @record_latency(search_time_histogram, "search")
-    def getCapsByHistory(self, msg: Msg, limit: int = 5, min_similarity: float = 0.5) -> Dict[str, Capability]:
+    def getCapsByHistory(
+        self, msg: Msg, limit: int = 5, min_similarity: float = 0.5
+    ) -> dict[str, Capability]:
         """
         Retrieve capabilities that are historically associated with similar messages.
 
@@ -260,7 +267,9 @@ class CapRegistry:
         current_span.set_attribute("limit", limit)
         current_span.set_attribute("min_similarity", min_similarity)
 
-        self.logger.debug(f"History-based search with limit={limit}, min_similarity={min_similarity}")
+        self.logger.debug(
+            f"History-based search with limit={limit}, min_similarity={min_similarity}"
+        )
         results = self.cap_store.getCapsByHistory(msg, limit, min_similarity)
         self.cap_fetch_counter.add(len(results), {"method": "history"})
         self.logger.info(f"History-based search returned {len(results)} capabilities.")

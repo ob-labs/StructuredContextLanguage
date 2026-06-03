@@ -3,31 +3,30 @@
 ### support interface to LLM as function call
 ### support tool call loop
 import json
-from typing import Dict, Optional
-from scl.embeddings.embedding import embed
-from scl.meta.skills_ref.parser import SkillProperties
+
 from scl.meta.capability import Capability
+from scl.meta.skills_ref.parser import SkillProperties
+
 
 class Skill(Capability):
-    def __init__(self, 
-                 SkillProperties: SkillProperties):
+    def __init__(self, SkillProperties: SkillProperties):
         if SkillProperties.metadata:
             self._original_body_dict = SkillProperties.metadata.copy()
         else:
             self._original_body_dict = {}
         original_body = json.dumps(self._original_body_dict, ensure_ascii=False, indent=2)
-        
+
         super().__init__(
             name=SkillProperties.name,
             description=SkillProperties.description,
             original_body=original_body,
             type="skill",
             llm_description=None,  # tbd
-            function_impl=None    # tbd
+            function_impl=None,  # tbd
         )
 
     @property
-    def original_body_dict(self) -> Dict[str, str]:
+    def original_body_dict(self) -> dict[str, str]:
         """原始描述获取字典表示"""
         return self._original_body_dict
 

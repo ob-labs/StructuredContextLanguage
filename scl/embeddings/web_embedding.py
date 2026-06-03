@@ -9,38 +9,44 @@ Does NOT maintain a local cache – that is handled by the coordinator.
 """
 
 import time
-import logging
+
 from openai import OpenAI
-from scl.otel.otel import tracer, meter
+
 from scl.embeddings.base_embedding import BaseEmbeddingClient
+from scl.otel.otel import tracer
 
 try:
     from scl.config import config
 except ImportError:
+
     class ConfigFallback:
         embedding_model = "BAAI/bge-m3"
         embedding_model_dims = 1024
         embedding_api_key = "your-api-key"
         embedding_base_url = "https://api.siliconflow.cn/v1"
+
     config = ConfigFallback()
+
 
 class WebEmbeddingClient(BaseEmbeddingClient):
     """Singleton web embedding client (OpenAI‑compatible)."""
 
     def _init_subclass(self):
-        self.model = getattr(config, 'embedding_model', 'BAAI/bge-m3')
-        self.embedding_dims = getattr(config, 'embedding_model_dims', 1024)
-        api_key = getattr(config, 'embedding_api_key', 'your-api-key')
-        base_url = getattr(config, 'embedding_base_url', 'https://api.siliconflow.cn/v1')
+        self.model = getattr(config, "embedding_model", "BAAI/bge-m3")
+        self.embedding_dims = getattr(config, "embedding_model_dims", 1024)
+        api_key = getattr(config, "embedding_api_key", "your-api-key")
+        base_url = getattr(config, "embedding_base_url", "https://api.siliconflow.cn/v1")
 
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.supports_dimensions = "openai.com" in base_url.lower()
 
         self.embed_counter = self._meter.create_counter(
             "web_embedding_requests_total",
-            description="Total number of web embedding API calls (not cache hits)"
+            description="Total number of web embedding API calls (not cache hits)",
         )
-        self.logger.info("WebEmbeddingClient initialized (model=%s, base_url=%s)", self.model, base_url)
+        self.logger.info(
+            "WebEmbeddingClient initialized (model=%s, base_url=%s)", self.model, base_url
+        )
 
     @tracer.start_as_current_span("embed")
     def embed(self, text):

@@ -24,16 +24,18 @@ Project Constraints Applied:
 Installation:
     pip install opentelemetry-api opentelemetry-sdk
 """
+
 import json
 import logging
 import os
 import uuid
-from dataclasses import dataclass, asdict, field
-from typing import Any, Dict, List, Optional
+from dataclasses import asdict, dataclass
+from typing import Any
 
 # OpenTelemetry imports
 from opentelemetry import trace
-from scl.otel.otel import tracer, meter
+
+from scl.otel.otel import meter, tracer
 
 # Try to import todo_watch_dir from config; fallback if not available
 try:
@@ -48,24 +50,19 @@ logger = logging.getLogger(__name__)
 
 # Setup metrics
 cap_task_created_counter = meter.create_counter(
-    "cap_task.created",
-    description="Number of CapTask instances created"
+    "cap_task.created", description="Number of CapTask instances created"
 )
 cap_task_serialized_counter = meter.create_counter(
-    "cap_task.serialized",
-    description="Number of times a CapTask was serialized to JSON"
+    "cap_task.serialized", description="Number of times a CapTask was serialized to JSON"
 )
 cap_task_deserialized_counter = meter.create_counter(
-    "cap_task.deserialized",
-    description="Number of times a CapTask was deserialized from JSON"
+    "cap_task.deserialized", description="Number of times a CapTask was deserialized from JSON"
 )
 cap_task_status_changed_counter = meter.create_counter(
-    "cap_task.status_changed",
-    description="Number of times a CapTask status changed"
+    "cap_task.status_changed", description="Number of times a CapTask status changed"
 )
 cap_task_file_written_counter = meter.create_counter(
-    "cap_task.file_written",
-    description="Number of CapTask files written to todo_watch_dir"
+    "cap_task.file_written", description="Number of CapTask files written to todo_watch_dir"
 )
 
 
@@ -82,10 +79,10 @@ class CapTask:
         approval (bool): Whether the task is approved for execution (default True).
         status (str): Current status, one of {"created", "Processed", "Error"}.
         full_result (str): The complete result/output from capability invocation.
-    
+
     Properties:
         result (str): First 500 lines of full_result.
-    
+
     Example usage:
         task = CapTask(
             cap_name="send_email",
@@ -106,12 +103,12 @@ class CapTask:
     """
 
     cap_name: str
-    args: List[Any]
-    task_hash: Optional[str] = None
-    hash: Optional[str] = None          # Auto-generated if not provided
-    approval: bool = True               # Approval flag
-    status: str = "created"             # Current status
-    full_result: str = ""               # Full result of the capability invocation
+    args: list[Any]
+    task_hash: str | None = None
+    hash: str | None = None  # Auto-generated if not provided
+    approval: bool = True  # Approval flag
+    status: str = "created"  # Current status
+    full_result: str = ""  # Full result of the capability invocation
 
     VALID_STATUSES = {"created", "Processed", "Error"}
 
@@ -150,16 +147,21 @@ class CapTask:
             span.set_attribute("cap_task.approval", self.approval)
             span.set_attribute("cap_task.status", self.status)
 
-            cap_task_created_counter.add(1, {
-                "cap_name": self.cap_name,
-                "approved": str(self.approval).lower(),
-                "status": self.status,
-            })
+            cap_task_created_counter.add(
+                1,
+                {
+                    "cap_name": self.cap_name,
+                    "approved": str(self.approval).lower(),
+                    "status": self.status,
+                },
+            )
             logger.debug(
                 f"Created CapTask: hash={self.hash}, cap_name={self.cap_name}, "
                 f"approval={self.approval}, status={self.status}"
             )
-            logger.info(f"CapTask created for capability '{self.cap_name}' with status '{self.status}'")
+            logger.info(
+                f"CapTask created for capability '{self.cap_name}' with status '{self.status}'"
+            )
 
             # Write file to todo_watch_dir
             self._write_file_to_watch_dir(span)
@@ -176,7 +178,7 @@ class CapTask:
             file_path = os.path.join(todo_watch_dir, f"{self.hash}.json")
             json_content = self.to_json(indent=2)
 
-            with open(file_path, 'w', encoding='utf-8') as f:
+            with open(file_path, "w", encoding="utf-8") as f:
                 f.write(json_content)
 
             cap_task_file_written_counter.add(1, {"cap_name": self.cap_name})
@@ -213,14 +215,17 @@ class CapTask:
 
         old_status = self.status
         object.__setattr__(self, "status", new_status)
-        cap_task_status_changed_counter.add(1, {
-            "cap_name": self.cap_name,
-            "old_status": old_status,
-            "new_status": new_status,
-        })
+        cap_task_status_changed_counter.add(
+            1,
+            {
+                "cap_name": self.cap_name,
+                "old_status": old_status,
+                "new_status": new_status,
+            },
+        )
         logger.info(f"CapTask {self.hash} status changed from '{old_status}' to '{new_status}'")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert CapTask to a dictionary suitable for JSON serialization."""
         with tracer.start_as_current_span("CapTask.to_dict") as span:
             span.set_attribute("cap_task.hash", self.hash)
@@ -229,7 +234,7 @@ class CapTask:
             logger.debug(f"Serialized CapTask {self.hash} to dict")
             return data
 
-    def to_json(self, indent: Optional[int] = None) -> str:
+    def to_json(self, indent: int | None = None) -> str:
         """
         Serialize CapTask to a JSON string.
 
@@ -248,7 +253,7 @@ class CapTask:
 
     @classmethod
     @tracer.start_as_current_span("CapTask.from_dict")
-    def from_dict(cls, data: Dict[str, Any]) -> "CapTask":
+    def from_dict(cls, data: dict[str, Any]) -> "CapTask":
         """
         Create a CapTask instance from a dictionary.
 
@@ -277,7 +282,7 @@ class CapTask:
             hash=data.get("hash"),
             approval=data.get("approval", True),
             status=data.get("status", "created"),
-            full_result=data.get("full_result", "")
+            full_result=data.get("full_result", ""),
         )
         cap_task_deserialized_counter.add(1, {"cap_name": task.cap_name})
         logger.debug(

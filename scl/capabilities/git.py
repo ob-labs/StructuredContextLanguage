@@ -25,18 +25,18 @@ Future features (not yet implemented):
 
 import logging
 import subprocess
-from typing import Dict, Any, List, Optional
+from typing import Any
 
 from opentelemetry import trace
-from scl.otel.otel import tracer, meter
+
 from scl.meta.capability import Capability
+from scl.otel.otel import meter, tracer
 
 logger = logging.getLogger(__name__)
 
 # Metric: number of git operations by action type
 git_operation_counter = meter.create_counter(
-    "git.operation",
-    description="Number of git operations performed, tagged by action type"
+    "git.operation", description="Number of git operations performed, tagged by action type"
 )
 
 
@@ -51,11 +51,7 @@ class GitCapability(Capability):
 
     @tracer.start_as_current_span("GitCapability.__init__")
     def __init__(
-        self,
-        name: str,
-        description: str,
-        original_body: str,
-        llm_description: Optional[str] = None
+        self, name: str, description: str, original_body: str, llm_description: str | None = None
     ):
         current_span = trace.get_current_span()
         current_span.set_attribute("git_capability.name", name)
@@ -66,14 +62,14 @@ class GitCapability(Capability):
             description=description,
             original_body=original_body,
             llm_description=llm_description,
-            function_impl=None  # Git operations are built-in, no external code
+            function_impl=None,  # Git operations are built-in, no external code
         )
 
         logger.debug(f"GitCapability '{name}' initialized")
         logger.info(f"GitCapability '{name}' created")
 
     @tracer.start_as_current_span("GitCapability.execute")
-    def execute(self, args_dict: Dict[str, Any]) -> Any:
+    def execute(self, args_dict: dict[str, Any]) -> Any:
         """
         Execute a Git operation based on the provided arguments.
 
@@ -93,7 +89,7 @@ class GitCapability(Capability):
             RuntimeError: if git command fails or current directory is not a repo.
         """
         current_span = trace.get_current_span()
-        action = args_dict.get('action')
+        action = args_dict.get("action")
         current_span.set_attribute("git.action", action)
 
         if not action:
@@ -104,8 +100,8 @@ class GitCapability(Capability):
 
         logger.debug(f"Executing git action '{action}' with args: {args_dict}")
 
-        if action == 'commit':
-            message = args_dict.get('message')
+        if action == "commit":
+            message = args_dict.get("message")
             if not message:
                 error_msg = "Commit requires a 'message' in args_dict."
                 logger.error(error_msg)
@@ -113,8 +109,8 @@ class GitCapability(Capability):
                 raise ValueError(error_msg)
             result = self._commit(message)
             current_span.set_attribute("git.commit.message", message)
-        elif action == 'checkout':
-            commit_hash = args_dict.get('commit_hash')
+        elif action == "checkout":
+            commit_hash = args_dict.get("commit_hash")
             if not commit_hash:
                 error_msg = "Checkout requires a 'commit_hash' in args_dict."
                 logger.error(error_msg)
@@ -122,7 +118,7 @@ class GitCapability(Capability):
                 raise ValueError(error_msg)
             result = self._checkout(commit_hash)
             current_span.set_attribute("git.checkout.hash", commit_hash)
-        elif action == 'history':
+        elif action == "history":
             result = self._history()
         else:
             error_msg = f"Unsupported git action '{action}'"
@@ -141,16 +137,14 @@ class GitCapability(Capability):
         try:
             self._verify_git_repo()
             # Stage all changes
-            subprocess.run(['git', 'add', '.'], check=True, capture_output=True, text=True)
+            subprocess.run(["git", "add", "."], check=True, capture_output=True, text=True)
             # Commit
             subprocess.run(
-                ['git', 'commit', '-m', message],
-                check=True, capture_output=True, text=True
+                ["git", "commit", "-m", message], check=True, capture_output=True, text=True
             )
             # Retrieve the new commit hash
             hash_result = subprocess.run(
-                ['git', 'rev-parse', 'HEAD'],
-                check=True, capture_output=True, text=True
+                ["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True
             )
             commit_hash = hash_result.stdout.strip()
             logger.info(f"Committed with hash {commit_hash}")
@@ -166,8 +160,7 @@ class GitCapability(Capability):
         try:
             self._verify_git_repo()
             subprocess.run(
-                ['git', 'checkout', commit_hash],
-                check=True, capture_output=True, text=True
+                ["git", "checkout", commit_hash], check=True, capture_output=True, text=True
             )
             logger.info(f"Checked out commit {commit_hash}")
             return commit_hash
@@ -176,7 +169,7 @@ class GitCapability(Capability):
             logger.error(error_msg)
             raise RuntimeError(error_msg) from e
 
-    def _history(self) -> List[Dict[str, str]]:
+    def _history(self) -> list[dict[str, str]]:
         """
         Return list of commits for the current branch.
 
@@ -190,21 +183,25 @@ class GitCapability(Capability):
         try:
             self._verify_git_repo()
             result = subprocess.run(
-                ['git', 'log', '--pretty=format:%H%x09%an%x09%ad%x09%s', '--date=short'],
-                check=True, capture_output=True, text=True
+                ["git", "log", "--pretty=format:%H%x09%an%x09%ad%x09%s", "--date=short"],
+                check=True,
+                capture_output=True,
+                text=True,
             )
-            lines = result.stdout.strip().split('\n')
+            lines = result.stdout.strip().split("\n")
             history = []
             for line in lines:
                 if line:
-                    parts = line.split('\t')
+                    parts = line.split("\t")
                     if len(parts) >= 4:
-                        history.append({
-                            "commit_hash": parts[0],
-                            "author": parts[1],
-                            "date": parts[2],
-                            "message": parts[3]
-                        })
+                        history.append(
+                            {
+                                "commit_hash": parts[0],
+                                "author": parts[1],
+                                "date": parts[2],
+                                "message": parts[3],
+                            }
+                        )
             logger.info(f"Retrieved {len(history)} commits from history")
             return history
         except subprocess.CalledProcessError as e:
@@ -216,11 +213,13 @@ class GitCapability(Capability):
         """Ensure the current working directory is inside a Git repository."""
         try:
             subprocess.run(
-                ['git', 'rev-parse', '--is-inside-work-tree'],
-                check=True, capture_output=True, text=True
+                ["git", "rev-parse", "--is-inside-work-tree"],
+                check=True,
+                capture_output=True,
+                text=True,
             )
-        except subprocess.CalledProcessError:
-            raise RuntimeError("Current directory is not a Git repository")
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError("Current directory is not a Git repository") from e
 
 
 """
