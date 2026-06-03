@@ -153,7 +153,7 @@ SCL 的 RAG 能力选择在行业基准上的表现：
 | MCPToolBench++ (single) | MCP 工具选择 | 99.6% |
 | ToolE (Qwen3-Embedding) | 工具选择 | 83.7% |
 
-详见[研究论文](docs/blog/A%20way%20to%20auto%20scaling%20capabilities%20for%20Agent.md)。
+详见[研究博客](docs/blog/A%20way%20to%20auto%20scaling%20capabilities%20for%20Agent.md)。
 
 ---
 

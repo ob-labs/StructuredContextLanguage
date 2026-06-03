@@ -153,7 +153,7 @@ SCL's RAG-based capability selection has been evaluated against industry benchma
 | MCPToolBench++ (single) | MCP tool selection | 99.6% |
 | ToolE (Qwen3-Embedding) | Tool selection | 83.7% |
 
-Details in the [research paper](docs/blog/A%20way%20to%20auto%20scaling%20capabilities%20for%20Agent.md).
+Details in the [research blog](docs/blog/A%20way%20to%20auto%20scaling%20capabilities%20for%20Agent.md).
 
 ---
 
