@@ -15,8 +15,8 @@ import logging
 
 from opentelemetry import trace
 
-from scl.embeddings.local_embedding import LocalEmbeddingClient
-from scl.embeddings.web_embedding import WebEmbeddingClient
+# Optional backends — imported lazily in CompositeEmbedding.__init__
+# to avoid hard failures when optional dependencies are missing.
 from scl.otel.otel import meter, tracer
 
 try:
@@ -48,14 +48,22 @@ class CompositeEmbedding:
         self.cache = None
         # if self._embedding_cache_path:
         #    self.cache = EmbeddingCache(cache_file=config.embedding_cache_path)
-        # Backends are lazy‑loaded – only if config says they exist
-        self._local_available = hasattr(config, "embedding_local_model_path")
-        self._web_available = False
-        # hasattr(config, 'embedding_api_key') and hasattr(config, 'embedding_base_url')
+        # Backends are lazy‑loaded – only if config provides the required settings.
+        # We use getattr + bool check so a default-None attribute doesn't activate
+        # a backend that lacks a real configuration value.
+        self._local_available = bool(getattr(config, "embedding_local_model_path", None))
+        self._web_available = bool(
+            getattr(config, "embedding_api_key", None)
+            and getattr(config, "embedding_base_url", None)
+        )
         if self._local_available:
+            from scl.embeddings.local_embedding import LocalEmbeddingClient
+
             self.local_client = LocalEmbeddingClient()
             self.logger.info("Local embedding backend enabled")
         if self._web_available:
+            from scl.embeddings.web_embedding import WebEmbeddingClient
+
             # openai.OpenAIError: The api_key client option must be set either by passing api_key to the client or by setting the OPENAI_API_KEY environment variable
             self.web_client = WebEmbeddingClient()
             self.logger.info("Web embedding backend enabled")
