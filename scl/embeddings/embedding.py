@@ -52,10 +52,7 @@ class CompositeEmbedding:
         # We use getattr + bool check so a default-None attribute doesn't activate
         # a backend that lacks a real configuration value.
         self._local_available = bool(getattr(config, "embedding_local_model_path", None))
-        self._web_available = bool(
-            getattr(config, "embedding_api_key", None)
-            and getattr(config, "embedding_base_url", None)
-        )
+        self._web_available = bool(getattr(config, "embedding_base_url", None))
         if self._local_available:
             from scl.embeddings.local_embedding import LocalEmbeddingClient
 
@@ -104,7 +101,7 @@ class CompositeEmbedding:
         if self._web_available:
             self.logger.info("Using web API for embedding")
             embedding = self.web_client.embed(text)
-            self.cache.set(text, embedding)
+            # self.cache.set(text, embedding)
             self._counter.add(1, {"source": "web"})
             return embedding
 

@@ -1,24 +1,72 @@
-export EMBEDDING_LOCAL_MODEL_PATH=/Users/yuanyi/OpenSource/OBTest/StructuredContextLanguage/bge-m3
-export EMBEDDING_CACHE_PATH=/Users/yuanyi/OpenSource/OBTest/StructuredContextLanguage/embeddings_cache.json
+## Steps for set up this example
+
+```
+uv sync
+export EMBEDDING_LOCAL_MODEL_PATH=path_to_your_embedding_weight/bge-m3
+or
+export EMBEDDING_BASE_URL=http://0.0.0.0:9080
+export EMBEDDING_API_KEY="any"
 python example/BFCL/gothroughfunctions.py
+```
 
+to run embedding service via restful way you can run code below in your own device.
 
+```
+# server.py
+import numpy as np
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import List, Union
+from sentence_transformers import SentenceTransformer
+import uvicorn
 
-## Step 0, config Otel, server
+# 1. 加载模型（可换成你自己的路径或 HuggingFace 模型名）
+model = SentenceTransformer("./bge-m3")
 
-## Step 1 maybe client able to rag procedure in a service or FAAS(function as a service) way
+app = FastAPI(title="Local Embedding Service (OpenAI format)")
 
-# | Case number | File format | Context RAG | Memory | Function call | 
-# | 1 | pdf | Autonomy(enable by default) | n/A | Autonomy |
-## case 2 test with memory(relative case)
-# | 2 | n/A | Autonomy(enable by default) | Autonomy | Autonomy | 
-## todo here a feed back loop here to show the Autonomy of context RAG.
+class EmbeddingRequest(BaseModel):
+    input: Union[str, List[str]]
+    model: str = "local-model"
 
-## case 3 test with memory(no relative case)
-# | 3 | n/A | Autonomy(enable by default) | New Thread(Autonomy) | Autonomy | 
-## case 4 test with hit
-# | 4 | n/A | Autonomy(enable by default) | by config | Autonomy |
-## case 5 test with context hit
-# | 5 | n/A | by config | n/A | Autonomy |
+class EmbeddingResponse(BaseModel):
+    object: str = "list"
+    data: List[dict]
+    model: str
+    usage: dict
 
-## Get result from server
+@app.post("/embeddings", response_model=EmbeddingResponse)
+async def get_embeddings(req: EmbeddingRequest):
+    # 统一转为列表
+    texts = [req.input] if isinstance(req.input, str) else req.input
+    
+    # 2. 编码
+    embeddings = model.encode(texts, normalize_embeddings=True)  # shape: (n, dim)
+    
+    # 3. 计算 token 数（用模型自带 tokenizer）
+    tokenizer = model.tokenizer
+    encoded = tokenizer(texts, padding=True, truncation=True, return_tensors="pt")
+    token_counts = encoded["attention_mask"].sum(dim=1).tolist()
+    
+    # 4. 构建 OpenAI 格式响应
+    data = []
+    for i, (emb, tc) in enumerate(zip(embeddings, token_counts)):
+        data.append({
+            "object": "embedding",
+            "embedding": emb.tolist(),
+            "index": i
+        })
+    
+    total_tokens = sum(token_counts)
+    return EmbeddingResponse(
+        data=data,
+        model=req.model,
+        usage={
+            "prompt_tokens": total_tokens,
+            "total_tokens": total_tokens
+        }
+    )
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=9080)
+```

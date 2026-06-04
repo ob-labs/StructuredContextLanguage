@@ -8,8 +8,6 @@ Generic OpenAI‑compatible embedding client (used as the final fallback).
 Does NOT maintain a local cache – that is handled by the coordinator.
 """
 
-import time
-
 from openai import OpenAI
 
 from scl.embeddings.base_embedding import BaseEmbeddingClient
@@ -51,7 +49,7 @@ class WebEmbeddingClient(BaseEmbeddingClient):
     @tracer.start_as_current_span("embed")
     def embed(self, text):
         """Call the web API and return the embedding vector."""
-        time.sleep(5)  # rate limit / timeout guard
+        # time.sleep(5)  # rate limit / timeout guard
         self.logger.info("Web embedding request (text length: %d)", len(text))
         self.logger.debug("Full text: %s", text)
 
