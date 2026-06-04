@@ -7,9 +7,6 @@ scl/embedding/web_embedding.py
 Generic OpenAI‑compatible embedding client (used as the final fallback).
 Does NOT maintain a local cache – that is handled by the coordinator.
 """
-
-import time
-
 from openai import OpenAI
 
 from scl.embeddings.base_embedding import BaseEmbeddingClient
