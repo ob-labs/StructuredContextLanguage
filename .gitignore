@@ -1,6 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.eggs/
+build/
+dist/
+*.so
+
+# Virtual environments
 .venv
-__pycache__
-node_modules
-.env
-*.log
 *venv
+env/
+
+# Environment / secrets
+.env
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.cache/
+
+# Type/lint caches
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+
+# Logs
+*.log
+
+# Editors / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+
+# SCL runtime
+todo_folder/

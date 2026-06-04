@@ -17,11 +17,11 @@ Dependencies (pip install):
 import abc
 import logging
 import threading
-import time
-from typing import Any, Optional
+from typing import Any
 
-from scl.otel.otel import tracer, meter
 from opentelemetry import trace
+
+from scl.otel.otel import meter, tracer
 
 
 class BaseQueueProcessor(abc.ABC):
@@ -50,32 +50,31 @@ class BaseQueueProcessor(abc.ABC):
     def __init__(
         self,
         name: str,
-        logger_name: Optional[str] = None,
+        logger_name: str | None = None,
     ):
         self.name = name
         self.logger = logging.getLogger(logger_name or __name__)
 
         # Wait‑time / backoff parameters
-        self._wait_time = 1.0          # seconds
-        self._max_wait = 300.0         # 5 minutes
-        self._idle_threshold = 16.0    # status becomes idle after this many seconds
+        self._wait_time = 1.0  # seconds
+        self._max_wait = 300.0  # 5 minutes
+        self._idle_threshold = 16.0  # status becomes idle after this many seconds
 
         # Control flags
         self._running = False
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._wakeup_event = threading.Event()  # triggered by notify()
 
         # ----------- Common metrics -----------
         self.items_consumed_counter = meter.create_counter(
-            f"{self.name}.items_consumed",
-            description="Total items consumed from the queue"
+            f"{self.name}.items_consumed", description="Total items consumed from the queue"
         )
 
         # ObservableGauge reports the current idle status (1 = idle, 0 = normal).
         self.idle_gauge = meter.create_observable_gauge(
             f"{self.name}.idle",
             description="Current idle status (1=idle, 0=normal)",
-            callbacks=[self._idle_gauge_callback]
+            callbacks=[self._idle_gauge_callback],
         )
         self._idle_value = 0
 
@@ -105,7 +104,7 @@ class BaseQueueProcessor(abc.ABC):
         if not self._running:
             return
         self._running = False
-        self._wakeup_event.set()      # interrupt sleep
+        self._wakeup_event.set()  # interrupt sleep
         if self._thread:
             self._thread.join(timeout=2.0)
         self.logger.info("%s stopped.", self.name)
@@ -142,7 +141,7 @@ class BaseQueueProcessor(abc.ABC):
 
     # ------------------------------------------------------------------ Abstract methods
     @abc.abstractmethod
-    def _get_item(self) -> Optional[Any]:
+    def _get_item(self) -> Any | None:
         """
         Fetch one item from the queue. Must return None if no item is available.
         """

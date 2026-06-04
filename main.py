@@ -6,25 +6,27 @@ import threading
 import time
 
 from scl.config import config
-from scl.queue.taskQueue import TaskQueue
-from scl.queue.capTaskQueues import CapabilityTaskQueues
-from scl.queue.awaitingApproveQueue import AwaitingApproveQueue
-from scl.queue.awaitingCapTasksQueue import AwaitingCapTasksQueue
-from scl.listener.restful_watch import RestFulHandler
 from scl.listener.file_watch import FileHandler
+from scl.listener.restful_watch import RestFulHandler
 from scl.processor.task_processor import TaskProcessor
+from scl.queue.awaiting_approve_queue import AwaitingApproveQueue
+from scl.queue.awaiting_cap_tasks_queue import AwaitingCapTasksQueue
+from scl.queue.cap_task_queues import CapabilityTaskQueues
+from scl.queue.task_queue import TaskQueue
 
 # Setup telemetry
 logger = logging.getLogger(__name__)
 from scl.otel.otel import init_telemetry
+
 init_telemetry()
+
 
 def main():
     todo_queue = TaskQueue()
     captask_queue = CapabilityTaskQueues()
     waiting_approval_queue = AwaitingApproveQueue()
     waiting_captask_queue = AwaitingCapTasksQueue()
-    
+
     logger.info("Starting Todo Receiver Application")
 
     # 从 config 读取监听目录
@@ -41,13 +43,9 @@ def main():
         task_queue=todo_queue,
         captask_queue=captask_queue,
         waiting_approval_queue=waiting_approval_queue,
-        waiting_captask_queue=waiting_captask_queue
+        waiting_captask_queue=waiting_captask_queue,
     )
-    rest_handler = RestFulHandler(
-        watch_dir,
-        host=config.api_host,
-        port=config.api_port
-    )
+    rest_handler = RestFulHandler(watch_dir, host=config.api_host, port=config.api_port)
 
     file_observer = file_handler.start()
     api_thread = threading.Thread(target=rest_handler.start, daemon=True)
@@ -67,6 +65,7 @@ def main():
             time.sleep(1)
     except KeyboardInterrupt:
         shutdown(None, None)
+
 
 if __name__ == "__main__":
     main()

@@ -1,22 +1,40 @@
 # path .github/workflows/test.yaml
-# This workflow runs unit tests on every PR and after merges.
-# Features (as defined in project header):
-# - runs per PR level and after merge
-# - checks out code
-# - sets up Python environment
-# - installs dependencies via requirements.txt
-# - installs pytest and pytest-asyncio as test tool
-# - runs tests via pytest ./scl/test/
+# CI: lint, type-check, and unit tests on every PR and after merges to main.
+# Dependencies are installed with uv from the locked pyproject/uv.lock.
 
-name: Unit Tests
+name: CI
 
 on:
   push:
     branches: [ main ]          # after merge
-  pull_request:                         # per PR level
+  pull_request:                 # per PR level
     branches: [ main ]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Ruff lint
+        run: uv run ruff check scl tests main.py
+
+      - name: Ruff format check
+        run: uv run ruff format --check scl tests main.py
+
+      - name: Mypy type check
+        # Non-blocking for now: the codebase is being typed incrementally.
+        # Remove continue-on-error once mypy passes cleanly.
+        continue-on-error: true
+        run: uv run mypy scl
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -27,26 +45,21 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Install test tools
-        run: pip install pytest pytest-asyncio
+        run: uv sync --extra dev --python ${{ matrix.python-version }}
 
       - name: Run unit tests
-        run: pytest ./scl/test/
+        run: uv run --python ${{ matrix.python-version }} pytest ./tests/ --cov=scl --cov-report=xml
 
-# Example usage:
-# This workflow is automatically triggered by:
-# - Pushing to main/master
-# - Creating, updating, or reopening a pull request targeting main/master
-# Developers can also manually trigger it via the "Actions" tab if needed.
-# To debug, inspect the "Run unit tests" step logs in the GitHub Actions console.
-# run test via pytest ./scl/test/
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.python-version }}
+          path: coverage.xml
+          if-no-files-found: ignore

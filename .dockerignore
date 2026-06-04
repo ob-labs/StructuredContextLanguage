@@ -1,0 +1,17 @@
+.git
+.github
+**/__pycache__/
+*.py[cod]
+.venv
+*venv/
+.env
+.env.*
+todo_folder/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+docs/
+tests/
+scl/storage/skills/

@@ -11,10 +11,12 @@ Used by the composite embedding coordinator.
 """
 
 import json
-import os
 import logging
+import os
+
 from opentelemetry import trace
-from scl.otel.otel import tracer, meter
+
+from scl.otel.otel import meter, tracer
 
 
 class EmbeddingCache:
@@ -38,7 +40,7 @@ class EmbeddingCache:
         """Load cache from disk."""
         if os.path.exists(self.cache_file):
             try:
-                with open(self.cache_file, 'r', encoding='utf-8') as f:
+                with open(self.cache_file, encoding="utf-8") as f:
                     self.cache = json.load(f)
                 self.logger.info("Embedding cache loaded (%d entries)", len(self.cache))
             except Exception as e:
@@ -51,7 +53,7 @@ class EmbeddingCache:
     def _save(self):
         """Persist cache to disk."""
         try:
-            with open(self.cache_file, 'w', encoding='utf-8') as f:
+            with open(self.cache_file, "w", encoding="utf-8") as f:
                 json.dump(self.cache, f, indent=2, ensure_ascii=False)
             self.logger.debug("Cache saved (%d entries)", len(self.cache))
         except Exception as e:

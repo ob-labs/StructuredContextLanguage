@@ -1,7 +1,6 @@
 """YAML frontmatter parsing for SKILL.md files."""
 
 from pathlib import Path
-from typing import Optional
 
 import strictyaml
 
@@ -9,7 +8,7 @@ from .errors import ParseError, ValidationError
 from .models import SkillProperties
 
 
-def find_skill_md(skill_dir: Path) -> Optional[Path]:
+def find_skill_md(skill_dir: Path) -> Path | None:
     """Find the SKILL.md file in a skill directory.
 
     Prefers SKILL.md (uppercase) but accepts skill.md (lowercase).
@@ -53,7 +52,7 @@ def parse_frontmatter(content: str) -> tuple[dict, str]:
         parsed = strictyaml.load(frontmatter_str)
         metadata = parsed.data
     except strictyaml.YAMLError as e:
-        raise ParseError(f"Invalid YAML in frontmatter: {e}")
+        raise ParseError(f"Invalid YAML in frontmatter: {e}") from e
 
     if not isinstance(metadata, dict):
         raise ParseError("SKILL.md frontmatter must be a YAML mapping")

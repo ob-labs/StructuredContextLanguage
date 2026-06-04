@@ -15,16 +15,17 @@ Project Constraints Applied:
 - Logger provides info and debug levels.
 - Dependencies are documented as `pip install` commands, not requirements.txt.
 """
+
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any
+from typing import Any
 
 # OpenTelemetry imports
 from opentelemetry import trace
-from scl.otel.otel import tracer, meter  # Assuming this is the correct import path
 
 # External embedding function (behavior: performs embedding operation)
 from scl.embeddings.embedding import embed
+from scl.otel.otel import meter, tracer  # Assuming this is the correct import path
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -32,7 +33,7 @@ logger = logging.getLogger(__name__)
 # Setup metrics
 capability_embedding_counter = meter.create_counter(
     "capability.embedding.generated",
-    description="Number of times embedding_description is computed for a Capability"
+    description="Number of times embedding_description is computed for a Capability",
 )
 
 
@@ -52,13 +53,15 @@ class Capability(ABC):
     """
 
     @tracer.start_as_current_span("Capability.__init__")
-    def __init__(self,
-                 name: str,
-                 type: str,
-                 description: Optional[str] = None,
-                 original_body: Optional[str] = None,
-                 llm_description: Optional[str] = None,
-                 function_impl: Optional[str] = None):
+    def __init__(
+        self,
+        name: str,
+        type: str,
+        description: str | None = None,
+        original_body: str | None = None,
+        llm_description: str | None = None,
+        function_impl: str | None = None,
+    ):
         current_span = trace.get_current_span()
         current_span.set_attribute("capability.name", name)
         current_span.set_attribute("capability.type", type)
@@ -81,8 +84,8 @@ class Capability(ABC):
                 "name": self._name,
                 "type": self._type,
                 "has_description": self._description is not None,
-                "has_function_impl": self._function_impl is not None
-            }
+                "has_function_impl": self._function_impl is not None,
+            },
         )
         logger.debug(
             f"Capability created: name='{self._name}', type='{self._type}', "
@@ -95,12 +98,12 @@ class Capability(ABC):
         return self._name
 
     @property
-    def description(self) -> Optional[str]:
+    def description(self) -> str | None:
         """Function description for progressive loading."""
         return self._description
 
     @property
-    def original_body(self) -> Optional[str]:
+    def original_body(self) -> str | None:
         """Original description body."""
         return self._original_body
 
@@ -121,7 +124,7 @@ class Capability(ABC):
                 self._embedding_description = None
                 logger.warning(
                     "Cannot generate embedding for capability '%s': no description provided.",
-                    self._name
+                    self._name,
                 )
                 current_span.set_attribute("embedding.skipped", True)
                 return None
@@ -132,9 +135,14 @@ class Capability(ABC):
                 capability_embedding_counter.add(1, {"capability.type": self._type})
                 logger.info(f"Successfully generated embedding for capability '{self._name}'")
             except Exception as e:
-                logger.error(f"Failed to generate embedding for capability '{self._name}': {e}", exc_info=True)
+                logger.error(
+                    f"Failed to generate embedding for capability '{self._name}': {e}",
+                    exc_info=True,
+                )
                 current_span.record_exception(e)
-                current_span.set_status(trace.Status(trace.StatusCode.ERROR, "Embedding generation failed"))
+                current_span.set_status(
+                    trace.Status(trace.StatusCode.ERROR, "Embedding generation failed")
+                )
                 raise  # Re-raise after logging/tracing
 
         return self._embedding_description
@@ -145,18 +153,18 @@ class Capability(ABC):
         return self._type
 
     @property
-    def llm_description(self) -> Optional[str]:
+    def llm_description(self) -> str | None:
         """LLM-generated description for tool field."""
         return self._llm_description
 
     @property
-    def function_impl(self) -> Optional[str]:
+    def function_impl(self) -> str | None:
         """Function implementation for sandbox execution."""
         return self._function_impl
 
     @abstractmethod
     @tracer.start_as_current_span("Capability.execute")
-    def execute(self, args_dict: Dict[str, Any]) -> Any:
+    def execute(self, args_dict: dict[str, Any]) -> Any:
         """
         Execute the capability with the given arguments.
 
@@ -185,9 +193,11 @@ class Capability(ABC):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Capability):
             return False
-        return (self._name == other._name and
-                self._description == other._description and
-                self._original_body == other._original_body)
+        return (
+            self._name == other._name
+            and self._description == other._description
+            and self._original_body == other._original_body
+        )
 
 
 # ----------------------------------------------------------------------

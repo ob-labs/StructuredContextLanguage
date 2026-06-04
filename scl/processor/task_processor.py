@@ -15,15 +15,12 @@ Missing features (none identified):
 - The design goals are fully implemented; no missing features have been identified.
 """
 
-import logging
-from typing import Optional
-
 from opentelemetry import trace
 
-from scl.processor.base_queue_processor import BaseQueueProcessor
-from scl.queue.taskQueue import TaskQueue
 from scl.meta.task import Task  # Task class definition
-from scl.otel.otel import tracer, meter
+from scl.otel.otel import meter, tracer
+from scl.processor.base_queue_processor import BaseQueueProcessor
+from scl.queue.task_queue import TaskQueue
 
 
 class TaskProcessor(BaseQueueProcessor):
@@ -43,13 +40,13 @@ class TaskProcessor(BaseQueueProcessor):
         # Metrics specific to task processing
         self.processing_error_counter = meter.create_counter(
             f"{self.name}.processing_errors",
-            description="Number of errors while processing individual tasks"
+            description="Number of errors while processing individual tasks",
         )
 
         self.logger.info("TaskProcessor initialized and registered with queue")
 
     # ------------------------------------------------------------------ Abstract method implementations
-    def _get_item(self) -> Optional[Task]:
+    def _get_item(self) -> Task | None:
         """
         Fetch one Task from the input queue without blocking.
         Must return None if the queue is empty.
@@ -57,7 +54,7 @@ class TaskProcessor(BaseQueueProcessor):
         try:
             # Non‑blocking fetch so the base class can manage backoff/sleep
             return self.input_queue.get(block=False)
-        except Exception:                # queue.Empty or equivalent
+        except Exception:  # queue.Empty or equivalent
             return None
 
     @tracer.start_as_current_span("TaskProcessor._process_item")
@@ -68,8 +65,8 @@ class TaskProcessor(BaseQueueProcessor):
         handles exception logging / metric updates for completed items.
         """
         current_span = trace.get_current_span()
-        task_id = getattr(item, 'id', 'unknown')
-        task_type = getattr(item, 'type', 'unknown')
+        task_id = getattr(item, "id", "unknown")
+        task_type = getattr(item, "type", "unknown")
 
         current_span.set_attribute("task.id", str(task_id))
         current_span.set_attribute("task.type", task_type)
@@ -80,7 +77,8 @@ class TaskProcessor(BaseQueueProcessor):
             # ---------- Actual task processing ----------
             # Replace this placeholder with your business logic.
             import time
-            time.sleep(0.1)          # simulate work
+
+            time.sleep(0.1)  # simulate work
             # -------------------------------------------
             self.logger.debug("Task %s processed successfully", task_id)
         except Exception as exc:
@@ -101,7 +99,7 @@ class TaskProcessor(BaseQueueProcessor):
         with tracer.start_as_current_span("TaskProcessor.notify") as span:
             status_before = self.status
             span.set_attribute("processor.status_before", status_before)
-            super().notify()                # triggers wakeup if idle
+            super().notify()  # triggers wakeup if idle
             span.set_attribute("processor.status_after", self.status)
 
 
@@ -109,7 +107,7 @@ class TaskProcessor(BaseQueueProcessor):
 """
 Example usage:
     from scl.processor.task_processor import TaskProcessor
-    from scl.queue.taskQueue import TaskQueue
+    from scl.queue.task_queue import TaskQueue
 
     # Create a queue and a processor
     queue = TaskQueue()

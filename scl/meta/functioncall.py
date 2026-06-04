@@ -21,20 +21,20 @@ Project Constraints Applied:
 - OpenTelemetry integrated for tracing, metrics, and structured logging.
 - Logger provides info and debug levels.
 """
+
 import logging
-from typing import Optional, Dict, Any
+from typing import Any
 
 from opentelemetry import trace
-from scl.otel.otel import tracer, meter
-from scl.embeddings.embedding import embed
+
 from scl.meta.capability import Capability
+from scl.otel.otel import meter, tracer
 
 logger = logging.getLogger(__name__)
 
 # Optional metric for function call executions
 function_call_counter = meter.create_counter(
-    "function_call.executed",
-    description="Number of times a FunctionCall was executed"
+    "function_call.executed", description="Number of times a FunctionCall was executed"
 )
 
 
@@ -47,12 +47,14 @@ class FunctionCall(Capability):
     """
 
     @tracer.start_as_current_span("FunctionCall.__init__")
-    def __init__(self,
-                 name: str,
-                 description: str,
-                 original_body: Optional[str] = None,
-                 llm_description: Optional[str] = None,
-                 function_impl: Optional[str] = None):
+    def __init__(
+        self,
+        name: str,
+        description: str,
+        original_body: str | None = None,
+        llm_description: str | None = None,
+        function_impl: str | None = None,
+    ):
         current_span = trace.get_current_span()
         current_span.set_attribute("function_call.name", name)
         current_span.set_attribute("function_call.has_function_impl", function_impl is not None)
@@ -64,14 +66,16 @@ class FunctionCall(Capability):
             description=description,
             original_body=original_body,
             llm_description=llm_description,
-            function_impl=function_impl
+            function_impl=function_impl,
         )
 
-        logger.debug(f"FunctionCall '{name}' initialized with impl length: {len(function_impl) if function_impl else 0}")
+        logger.debug(
+            f"FunctionCall '{name}' initialized with impl length: {len(function_impl) if function_impl else 0}"
+        )
         logger.info(f"FunctionCall '{name}' created")
 
     @tracer.start_as_current_span("FunctionCall.execute")
-    def execute(self, args_dict: Dict[str, Any]) -> Any:
+    def execute(self, args_dict: dict[str, Any]) -> Any:
         """
         Execute the function call with the provided arguments.
 
@@ -103,11 +107,11 @@ class FunctionCall(Capability):
         try:
             # Build the dynamic function definition as per the design comments
             func_code = self.function_impl
-            param_names = ', '.join(args_dict.keys())
+            param_names = ", ".join(args_dict.keys())
             func_lines = [f"def dynamic_func({param_names}):"]
             # Indent each line of the function implementation for proper Python syntax
-            func_lines.extend([f"    {line}" for line in func_code.split('\n')])
-            func_def = '\n'.join(func_lines)
+            func_lines.extend([f"    {line}" for line in func_code.split("\n")])
+            func_def = "\n".join(func_lines)
 
             # Log the generated code for debugging/traceability
             logger.info(f"args_dict: {args_dict}")
@@ -116,7 +120,7 @@ class FunctionCall(Capability):
             local_vars = {}
             # Execute the definition in the current global context
             exec(func_def, globals(), local_vars)
-            func = local_vars['dynamic_func']
+            func = local_vars["dynamic_func"]
 
             # Call the newly defined function with the provided arguments
             result = func(**args_dict)

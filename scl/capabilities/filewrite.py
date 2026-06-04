@@ -18,21 +18,21 @@ Project Constraints Applied:
 - OpenTelemetry integrated for tracing, metrics, and structured logging.
 - Logger provides info and debug levels.
 """
+
 import logging
 import os
-from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Any
 
 from opentelemetry import trace
-from scl.otel.otel import tracer, meter
+
 from scl.meta.capability import Capability
+from scl.otel.otel import meter, tracer
 
 logger = logging.getLogger(__name__)
 
 # Metric for file write operations
 file_write_counter = meter.create_counter(
-    "file_write.executed",
-    description="Number of file write executions"
+    "file_write.executed", description="Number of file write executions"
 )
 
 
@@ -52,8 +52,8 @@ class FileWrite(Capability):
         name: str,
         description: str,
         original_body: str,
-        llm_description: Optional[str] = None,
-        allowed_dirs: Optional[List[str]] = None,
+        llm_description: str | None = None,
+        allowed_dirs: list[str] | None = None,
     ):
         current_span = trace.get_current_span()
         current_span.set_attribute("file_write.name", name)
@@ -75,13 +75,11 @@ class FileWrite(Capability):
         else:
             self.allowed_dirs = [os.path.abspath(os.getcwd())]
 
-        logger.debug(
-            f"FileWrite '{name}' allowed directories: {self.allowed_dirs}"
-        )
+        logger.debug(f"FileWrite '{name}' allowed directories: {self.allowed_dirs}")
         logger.info(f"FileWrite '{name}' created")
 
     @tracer.start_as_current_span("FileWrite.execute")
-    def execute(self, args_dict: Dict[str, Any]) -> str:
+    def execute(self, args_dict: dict[str, Any]) -> str:
         """
         Execute the file write operation.
 
@@ -141,10 +139,7 @@ class FileWrite(Capability):
                 # Different drives on Windows, etc.
                 continue
         if not allowed:
-            error_msg = (
-                f"Path '{target_path}' is outside allowed directories: "
-                f"{self.allowed_dirs}"
-            )
+            error_msg = f"Path '{target_path}' is outside allowed directories: {self.allowed_dirs}"
             logger.error(error_msg)
             current_span.set_status(trace.Status(trace.StatusCode.ERROR, error_msg))
             raise PermissionError(error_msg)
@@ -170,8 +165,7 @@ class FileWrite(Capability):
             current_span.set_attribute("file_write.bytes_written", len(content))
 
             logger.info(
-                f"File written successfully: {target_path} "
-                f"(mode={mode}, bytes={len(content)})"
+                f"File written successfully: {target_path} (mode={mode}, bytes={len(content)})"
             )
 
             # Return the written content as per design goal
@@ -185,10 +179,7 @@ class FileWrite(Capability):
             raise OSError(error_msg) from e
 
     def __repr__(self) -> str:
-        return (
-            f"FileWrite(name='{self.name}', "
-            f"allowed_dirs={self.allowed_dirs})"
-        )
+        return f"FileWrite(name='{self.name}', allowed_dirs={self.allowed_dirs})"
 
 
 """

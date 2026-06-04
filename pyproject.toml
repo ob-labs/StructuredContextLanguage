@@ -1,0 +1,95 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "structured-context-language"
+description = "Structured Context Language (SCL) — a standardized agent loop runtime for context engineering."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Teingi" }]
+keywords = ["agent", "llm", "context-engineering", "scl", "rag"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
+dynamic = ["version"]
+
+dependencies = [
+    "fastapi>=0.135.3",
+    "uvicorn>=0.44.0",
+    "watchdog>=6.0.0",
+    "openai>=2.14.0",
+    "numpy>=2.3.5",
+    "strictyaml>=1.7.3",
+    "PyYAML>=6.0.3",
+    "rank-bm25>=0.2.2",
+    "opentelemetry-api>=1.39.1",
+    "opentelemetry-sdk>=1.39.1",
+    "opentelemetry-exporter-otlp>=1.39.1",
+    "opentelemetry-instrumentation-logging>=0.60b1",
+]
+
+[project.optional-dependencies]
+# OceanBase vector store backend (scl/storage/oceanbasestore.py)
+oceanbase = ["pyobvector", "SQLAlchemy"]
+# PostgreSQL + pgvector store backend (scl/storage/pgstore.py)
+postgres = ["psycopg2-binary>=2.9.11", "pgvector>=0.4.2"]
+# Local embedding model backend (scl/embeddings/local_embedding.py)
+local = ["sentence-transformers"]
+dev = ["pytest", "pytest-asyncio", "pytest-cov", "ruff", "mypy"]
+
+[project.urls]
+Homepage = "https://github.com/Teingi/StructuredContextLanguage"
+Repository = "https://github.com/Teingi/StructuredContextLanguage"
+
+[project.scripts]
+scl = "main:main"
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+include = ["scl*"]
+exclude = ["scl.storage.skills*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "scl.__version__" }
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["scl/storage/skills"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# E501 (line length) is owned by the formatter; long strings/comments are left as-is.
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+# E402: telemetry must be initialized before other imports.
+"main.py" = ["E402"]
+# E402 in these modules is from imports placed after optional-dependency guards.
+"scl/cap_reg.py" = ["E402"]
+"scl/storage/oceanbasestore.py" = ["E402"]
+"scl/storage/pgstore.py" = ["E402"]
+"tests/*" = ["E402", "F401", "F841", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+exclude = ["scl/storage/skills/"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=scl --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["scl"]
+omit = ["tests/*", "scl/storage/skills/*"]

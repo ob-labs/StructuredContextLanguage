@@ -1,73 +1,182 @@
-# 结构化上下文语言（Structured Context Language）
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/SCL-v0.1.0-blue?style=for-the-badge&labelColor=1a1a2e">
+  <img alt="SCL v0.1.0" src="https://img.shields.io/badge/SCL-v0.1.0-blue?style=for-the-badge">
+</picture>
+<br>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/python-≥3.11-3776AB?style=flat&logo=python&logoColor=white">
+  <img alt="Python ≥3.11" src="https://img.shields.io/badge/python-≥3.11-3776AB?style=flat&logo=python&logoColor=white">
+</picture>
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green?style=flat" alt="License"></a>
+<a href="https://github.com/Teingi/StructuredContextLanguage/actions/workflows/test.yaml"><img src="https://github.com/Teingi/StructuredContextLanguage/actions/workflows/test.yaml/badge.svg" alt="CI"></a>
 
-## 愿景
-大家都很熟悉用于与数据库交互的 SQL。如今，面对大语言模型，我们的焦点正从提示工程转向上下文工程。
+# Structured Context Language (SCL)
 
-在本项目中，我们尝试构建一种结构化上下文语言（Structured Context Language），旨在借鉴上下文工程的实践，占据一个类似于 SQL 的生态位。
+**面向上下文工程的标准化智能体运行时中间件。**  
+SCL 致力于成为 LLM 时代的上下文工程基础设施——如同 SQL 之于数据库，Hibernate 之于 Java。
 
-我们希望通过这一实践，能够总结出一套中间件。该中间件将为智能体提供标准化的接口，其角色类似于 Hibernate 之于 Java 应用程序。
+---
 
-## 解构 SCL
+## 概述
 
-如果将提示词视为一种面向大语言模型（LLM）的查询语言，那么上下文工程无疑是这种查询语言的一种实现方式。我们可以从三个相互独立的维度来解构上下文工程：
+上下文工程可以从三个独立维度进行解构，SCL 将它们统一到一个事件驱动的运行时中：
 
-- 业务内容：面向具体提示词和场景的具体指示。
-- 工具调用：LLM 能够使用的各种工具，旨在获取额外的外部数据。
-- 记忆管理：在多轮对话场景下，决定哪些历史内容与当前查询相关。
+| 维度 | 说明 | 性质 |
+|------|------|------|
+| **业务内容** | 面向具体场景的提示词指令 | 即"查询本身" |
+| **工具调用** | 函数调用、MCP、Skill 等获取或变更外部数据的能力 | 信息的空间扩展 |
+| **记忆管理** | 多轮会话中筛选相关历史内容 | 信息的时间扩展 |
 
-> 我们可以将工具调用视为对信息的空间扩展，而将记忆管理视为信息在时间维度的扩展。
+SCL 通过一套**标准化接口**处理上述三个维度，让你专注于业务逻辑而非基础设施。
 
-考虑到在工程实践中，我们可以通过工具调用来实现记忆管理的交互，因此在上下文工程中，对于信息的扩展查询可以使用一种标准化接口来完成，并进一步总结为一个标准化流程。
+---
 
-受益于 Claude Skill 的渐进式加载机制，我们也看到在不同工具之间，可以通过渐进式加载的方式实现大模型对工具的自主选择。这与在 SQL 中定义并显式调用执行的存储过程不同，它通过渐进式加载提供了额外的自主性。
+## 功能特性
 
-## SCL Agent Loop：统一智能体运行时
+- **统一供应商接口** — 一个 API 支持 Anthropic、OpenAI、Google、xAI、Groq、OpenRouter 及任何兼容 OpenAI 的端点
+- **RAG 驱动的工具选择** — 通过 BM25 + Embedding 混合搜索渐进式加载工具定义，避免上下文膨胀
+- **文件优先的持久化** — 文件系统为核心，REST API 负责校验后写入文件，由文件监听器解耦处理
+- **可插拔存储后端** — 文件系统、OceanBase、PostgreSQL/pgvector，统一 `StoreBase` 接口
+- **复合 Embedding** — 缓存 → 本地 (SentenceTransformer) → Web API (兼容 OpenAI) 自动降级
+- **可观测性** — 全链路 OpenTelemetry 埋点（调用链、指标、结构化日志）
+- **内置工具集** — 文件读写、grep、bash、git、cron — 通过注册机制可扩展
+- **多种运行形态** — RESTful 服务、交互式 TUI、或作为库直接引用
+- **极简核心** — 不内置规划器、子智能体或后台进程；编排逻辑完全由你掌控
 
-基于上述思想，SCL 提供一个标准化的智能体循环（Agent Loop），作为上下文工程的运行时中间件。它将上述三个维度的处理统一到一个事件驱动的执行模型中。
+---
 
-### 设计原则
+## 快速开始
 
-- **极简 YOLO 模式**  
-  不内置 TODO、计划、子智能体、后台 bash。开发者通过文件外化状态、通过 bash 组合工具、通过新建 task 实现技能执行。我们希望框架只做“运行智能体”这一件事，并给使用者完全的控制权和可观测性。
+```bash
+# 安装
+pip install -e .
 
-- **统一供应商接口**  
-  一个 API 支持 Anthropic、OpenAI、Google、xAI、Groq、Cerebras、OpenRouter 及任何兼容 OpenAI 的端点。提供流式传输、基于 TypeBox 模式校验的工具调用、思维/推理支持、无缝跨供应商上下文交接，以及令牌和成本追踪。
+# 启动服务
+scl
 
-- **工具注册与选择**  
-  内置工具注册中心，维护工具的元数据与描述。智能体通过 RAG 机制渐进式加载可用工具，只在需要时将相关工具定义注入上下文，避免全量工具描述带来的上下文膨胀。这种按需选择的方式继承了渐进式加载的思想，同时保留模型的自主性。
+# 通过 REST API 提交任务
+curl -X POST http://localhost:8080/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"system_prompt": "你是一个助手。", "capacity": ["bash", "file_read"]}'
 
-- **可插拔的内容压缩**  
-  提供内容压缩策略的热插拔接口。在长对话中，通过可定制的压缩器精简历史消息，在保留关键信息的前提下降低令牌消耗，提升智能体长期运行时的稳定性。
+# 或者直接往监听目录扔文件
+echo '{"system_prompt": "你好"}' > ./todo_folder/task.json
+```
 
-- **Prompt 模板**  
-  为业务内容提供结构化模板支持，便于复用、版本管理和团队协作。模板可结合上下文工程实践，固化有效的提示模式。
+详见[入门指南](docs/04-getting-started.md)。
 
-- **多种运行形态**  
-  - **RESTful（容器）** —— 作为服务部署，提供 API 接入。  
-  - **本地 TUI** —— 在终端中交互式使用，支持斜杠命令、会话管理。  
-  - **库文件** —— 直接引用，支持二次开发与深度集成。
+---
 
-- **可观测性**  
-  全流程事件流透明输出：工具调用的参数与结果、模型输出的每一步变化、内部状态的变更均可追踪。这对调试、评估和信任构建至关重要。
+## 作为库使用
 
-- **内置工具集**  
-  开箱即用的基础工具，覆盖常见编码与运维任务：
-  - 文件读写
-  - 查找（grep、find）
-  - bash
-  - git
-  - 创建 cron job
-  - 以及其他可被 function call 分支选用的工具
+```python
+from scl.meta.task import Task
+from scl.queue.task_queue import TaskQueue
+from scl.processor.task_processor import TaskProcessor
 
-  工具可以通过注册机制扩展，既支持内置实现，也支持通过 CLI 包装已有命令。
+queue = TaskQueue()
+processor = TaskProcessor(queue)
+processor.start()
 
-### 如何呼应 SCL 的思想
+task = Task(system_prompt="你是一个助手。")
+queue.add(task)  # 自动通知处理器
+```
 
-- **信息扩展的统一**  
-  工具调用（空间扩展）和记忆管理（时间扩展）都在 agent loop 内通过标准化工具接口完成。记忆管理不再是一种特殊的内部机制，而是像其他工具一样被调用、记录和观察。
+---
 
-- **渐进式加载的工程化**  
-  工具选择的 RAG 机制将渐进式加载从“技能文件”延伸到所有工具，模型先理解需求，再按需获取工具说明，自主决定使用哪些资源。这平衡了上下文效率与自主性。
+## 文档
 
-- **中间件定位**  
-  正如 Hibernate 为 Java 应用提供持久化的标准抽象，SCL Agent Loop 旨在为智能体应用提供上下文管理的标准化接口。它封装了供应商差异、工具执行、压缩策略和运行时模式，使开发者可以更专注于业务提示和任务流设计。
+| 文档 | 说明 |
+|------|------|
+| [概览与设计理念](docs/01-overview.md) | 愿景、设计原则与哲学 |
+| [架构](docs/02-architecture.md) | 组件分解、数据流与系统设计 |
+| [核心概念](docs/03-core-concepts.md) | Task、Capability、CapRegistry、Embedding、Storage、Queue、Processor |
+| [入门指南](docs/04-getting-started.md) | 安装、配置与快速上手 |
+| [SDK 参考](docs/05-sdk-reference.md) | API 参考与常见使用模式 |
+| [开发路线图](docs/06-development.md) | 项目状态、路线图与贡献指南 |
+
+### 研究
+
+- [面向 Agent 的能力自动缩放方案](docs/blog/A%20way%20to%20auto%20scaling%20capabilities%20for%20Agent.md) — 基于 RAG 的工具选择，在 BFCL、MCPToolBench++ 和 ToolE 基准上的评估
+
+---
+
+## 架构概览
+
+```
+监听器 (REST / 文件监听 / 内部任务)
+        │
+        ▼  (写入文件)
+todo_folder/  ─── 文件级持久化层
+        │
+        ▼
+  队列系统  ─── TaskQueue、CapabilityTaskQueues、等待队列
+        │
+        ▼
+ 处理器  ─── TaskProcessor、CapTaskProcessor、等待处理器
+        │
+        ▼
+ 核心服务  ─── CapRegistry (RAG)、Embedding、Storage、LLM Chat
+        │
+        ▼
+ 可观测性  ─── OpenTelemetry (调用链、指标、日志)
+```
+
+---
+
+## 项目状态
+
+**当前版本: 0.1.0** — 活跃开发中
+
+| 模块 | 状态 |
+|------|------|
+| 核心 Agent 循环 | ✅ 稳定 |
+| RAG 工具选择 | ✅ 稳定（BM25 + Embedding 混合） |
+| REST 与文件监听 | ✅ 可用 |
+| 存储后端 | ✅ fsstore, ⏳ OceanBase, ⏳ pgvector |
+| Docker 部署 | ✅ 就绪 |
+| WebSocket 钩子 | 📋 计划中 |
+| 调试框架 | 📋 计划中 |
+
+详见[开发路线图](docs/06-development.md)。
+
+---
+
+## 基准测试
+
+SCL 的 RAG 能力选择在行业基准上的表现：
+
+| 基准 | 类型 | Top-5 召回率 |
+|------|------|-------------|
+| BFCL (multiple) | 函数调用选择 | 95.2% |
+| BFCL (parallel) | 并行函数调用 | 93.8% |
+| MCPToolBench++ (single) | MCP 工具选择 | 99.6% |
+| ToolE (Qwen3-Embedding) | 工具选择 | 83.7% |
+
+详见[研究博客](docs/blog/A%20way%20to%20auto%20scaling%20capabilities%20for%20Agent.md)。
+
+---
+
+## 参与贡献
+
+```bash
+# 环境准备
+pip install -e ".[dev]"
+
+# 运行检查
+make lint        # ruff 代码检查
+make typecheck   # mypy 类型检查
+make test        # pytest + 覆盖率
+make check       # 全量检查
+
+# 查看所有目标
+make help
+```
+
+欢迎提交 Pull Request。新组件请保持 OpenTelemetry 埋点和结构化日志的规范。
+
+---
+
+## 许可证
+
+[Apache License 2.0](LICENSE)

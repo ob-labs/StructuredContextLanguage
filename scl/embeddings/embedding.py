@@ -12,12 +12,12 @@ All results are stored in the shared cache.
 """
 
 import logging
-from functools import lru_cache
-from scl.embeddings.embedding_cache import EmbeddingCache
-from scl.embeddings.local_embedding import LocalEmbeddingClient
-from scl.embeddings.web_embedding import WebEmbeddingClient
-from scl.otel.otel import tracer, meter
+
 from opentelemetry import trace
+
+# Optional backends — imported lazily in CompositeEmbedding.__init__
+# to avoid hard failures when optional dependencies are missing.
+from scl.otel.otel import meter, tracer
 
 try:
     from scl.config import config
@@ -25,10 +25,13 @@ except ImportError:
     # Fallback – all backends disabled
     class ConfigFallback:
         pass
+
     config = ConfigFallback()
+
 
 class CompositeEmbedding:
     """Singleton coordinator that chooses the best backend for each request."""
+
     _instance = None
 
     def __new__(cls):
@@ -41,25 +44,33 @@ class CompositeEmbedding:
         if self._initialized:
             return
         self.logger = logging.getLogger(__name__)
-        self._embedding_cache_path = hasattr(config, 'embedding_cache_path')
+        self._embedding_cache_path = hasattr(config, "embedding_cache_path")
         self.cache = None
-        #if self._embedding_cache_path:
+        # if self._embedding_cache_path:
         #    self.cache = EmbeddingCache(cache_file=config.embedding_cache_path)
-        # Backends are lazy‑loaded – only if config says they exist
-        self._local_available = hasattr(config, 'embedding_local_model_path')
-        self._web_available = False
-        #hasattr(config, 'embedding_api_key') and hasattr(config, 'embedding_base_url')
+        # Backends are lazy‑loaded – only if config provides the required settings.
+        # We use getattr + bool check so a default-None attribute doesn't activate
+        # a backend that lacks a real configuration value.
+        self._local_available = bool(getattr(config, "embedding_local_model_path", None))
+        self._web_available = bool(
+            getattr(config, "embedding_api_key", None)
+            and getattr(config, "embedding_base_url", None)
+        )
         if self._local_available:
+            from scl.embeddings.local_embedding import LocalEmbeddingClient
+
             self.local_client = LocalEmbeddingClient()
             self.logger.info("Local embedding backend enabled")
         if self._web_available:
+            from scl.embeddings.web_embedding import WebEmbeddingClient
+
             # openai.OpenAIError: The api_key client option must be set either by passing api_key to the client or by setting the OPENAI_API_KEY environment variable
             self.web_client = WebEmbeddingClient()
             self.logger.info("Web embedding backend enabled")
 
         self._counter = meter.create_counter(
             "composite_embedding_requests",
-            description="Total composite embedding requests (cache hits + computations)"
+            description="Total composite embedding requests (cache hits + computations)",
         )
         self._initialized = True
 
@@ -83,7 +94,7 @@ class CompositeEmbedding:
             try:
                 embedding = self.local_client.embed(text)
                 # Save single vector (already extracted) into cache
-                #self.cache.set(text, embedding.tolist() if hasattr(embedding, 'tolist') else embedding)
+                # self.cache.set(text, embedding.tolist() if hasattr(embedding, 'tolist') else embedding)
                 self._counter.add(1, {"source": "local"})
                 return embedding
             except Exception as e:
@@ -99,11 +110,14 @@ class CompositeEmbedding:
 
         raise RuntimeError("No embedding backend available – configure local model or web API.")
 
+
 def get_embedding_client():
     return CompositeEmbedding()
 
+
 def embed(text):
     return get_embedding_client().embed(text)
+
 
 """
 Example usage:

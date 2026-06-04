@@ -33,14 +33,14 @@ Dependencies (install via pip):
 import hashlib
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Union
+from datetime import UTC, datetime
+from typing import Any
 
 from opentelemetry import trace
-from scl.otel.otel import meter, tracer
 
 # Import CapTask for the required cap_tasks list
 from scl.meta.captask import CapTask
+from scl.otel.otel import meter, tracer
 
 # Metrics
 task_created_counter = meter.create_counter(
@@ -75,14 +75,14 @@ class Task:
     def __init__(
         self,
         system_prompt: str,
-        prompt_list: Optional[List[str]] = None,
-        capacity: Optional[List[str]] = None,
+        prompt_list: list[str] | None = None,
+        capacity: list[str] | None = None,
         status: str = "created",
         approval: bool = True,
-        additional: Optional[Dict[str, str]] = None,
-        previous_hash: Optional[str] = None,
-        sub_tasks: Optional[List["Task"]] = None,
-        cap_tasks: Optional[List[CapTask]] = None,
+        additional: dict[str, str] | None = None,
+        previous_hash: str | None = None,
+        sub_tasks: list["Task"] | None = None,
+        cap_tasks: list[CapTask] | None = None,
     ) -> None:
         """
         Initialize a Task instance.
@@ -104,18 +104,18 @@ class Task:
             span.set_attribute("task.approval", approval)
 
             self._system_prompt: str = system_prompt
-            self._prompt_list: List[str] = prompt_list.copy() if prompt_list else []
-            self._capacity: List[str] = capacity.copy() if capacity else []
+            self._prompt_list: list[str] = prompt_list.copy() if prompt_list else []
+            self._capacity: list[str] = capacity.copy() if capacity else []
             self._status: str = status if status in self.VALID_STATUSES else "created"
             self._approval: bool = approval
-            self._additional: Dict[str, str] = additional.copy() if additional else {}
-            self._previous_hash: Optional[str] = previous_hash
-            self._sub_tasks: List["Task"] = []
-            self._cap_tasks: List[CapTask] = []  # New: list of CapTasks
-            self._parent: Optional["Task"] = None
+            self._additional: dict[str, str] = additional.copy() if additional else {}
+            self._previous_hash: str | None = previous_hash
+            self._sub_tasks: list[Task] = []
+            self._cap_tasks: list[CapTask] = []  # New: list of CapTasks
+            self._parent: Task | None = None
 
             # Timestamps for LRU ordering
-            self._created_at: datetime = datetime.now(timezone.utc)
+            self._created_at: datetime = datetime.now(UTC)
             self._updated_at: datetime = self._created_at
 
             # Add initial subtasks if provided
@@ -146,7 +146,9 @@ class Task:
             )
             logger.debug(
                 "Task details: system_prompt=%s, prompt_list=%s, capacity=%s",
-                self._system_prompt[:50] + "..." if len(self._system_prompt) > 50 else self._system_prompt,
+                self._system_prompt[:50] + "..."
+                if len(self._system_prompt) > 50
+                else self._system_prompt,
                 self._prompt_list,
                 self._capacity,
             )
@@ -169,7 +171,7 @@ class Task:
             self._touch()
 
     @property
-    def prompt_list(self) -> List[str]:
+    def prompt_list(self) -> list[str]:
         """List of prompt strings (history)."""
         return self._prompt_list.copy()  # return copy to prevent external mutation
 
@@ -182,12 +184,12 @@ class Task:
             logger.debug("Prompt added to task %s", self.hash)
 
     @property
-    def capacity(self) -> List[str]:
+    def capacity(self) -> list[str]:
         """List of capacity strings."""
         return self._capacity.copy()
 
     @capacity.setter
-    def capacity(self, value: List[str]) -> None:
+    def capacity(self, value: list[str]) -> None:
         """Replace capacity list."""
         with tracer.start_as_current_span("Task.capacity.setter") as span:
             span.set_attribute("capacity_count", len(value))
@@ -212,9 +214,7 @@ class Task:
             old_status = self._status
             self._status = value
             self._touch()
-            task_status_changed_counter.add(
-                1, {"old_status": old_status, "new_status": value}
-            )
+            task_status_changed_counter.add(1, {"old_status": old_status, "new_status": value})
             logger.info("Task %s status changed from %s to %s", self.hash, old_status, value)
 
     @property
@@ -233,7 +233,7 @@ class Task:
             logger.info("Task %s approval set to %s", self.hash, value)
 
     @property
-    def additional(self) -> Dict[str, str]:
+    def additional(self) -> dict[str, str]:
         """Additional data dictionary (copy)."""
         return self._additional.copy()
 
@@ -250,7 +250,7 @@ class Task:
     # ----------------------------------------------------------------------
 
     @property
-    def cap_tasks(self) -> List[CapTask]:
+    def cap_tasks(self) -> list[CapTask]:
         """List of CapTasks associated with this task (copy)."""
         return self._cap_tasks.copy()
 
@@ -307,12 +307,12 @@ class Task:
         return hasher.hexdigest()
 
     @property
-    def previous_hash(self) -> Optional[str]:
+    def previous_hash(self) -> str | None:
         """Hash of the previous task in the chain."""
         return self._previous_hash
 
     @previous_hash.setter
-    def previous_hash(self, value: Optional[str]) -> None:
+    def previous_hash(self, value: str | None) -> None:
         """Set the previous hash (for hash chain linking)."""
         self._previous_hash = value
         self._touch()
@@ -334,7 +334,7 @@ class Task:
     # ----------------------------------------------------------------------
 
     @property
-    def sub_tasks(self) -> List["Task"]:
+    def sub_tasks(self) -> list["Task"]:
         """List of subtasks (direct children)."""
         return self._sub_tasks.copy()
 
@@ -360,7 +360,7 @@ class Task:
         subtask_added_counter.add(1)
         logger.info("Subtask %s added to task %s", subtask.hash, self.hash)
 
-    def get_siblings(self) -> List["Task"]:
+    def get_siblings(self) -> list["Task"]:
         """
         Return a list of sibling tasks (other subtasks of the same parent).
         If this task has no parent, returns an empty list.
@@ -369,7 +369,7 @@ class Task:
             return []
         return [t for t in self._parent._sub_tasks if t is not self]
 
-    def get_all_descendants(self) -> List["Task"]:
+    def get_all_descendants(self) -> list["Task"]:
         """Return a flattened list of all subtasks recursively."""
         descendants = []
         for child in self._sub_tasks:
@@ -393,7 +393,7 @@ class Task:
 
     def _touch(self) -> None:
         """Update the updated_at timestamp to now."""
-        self._updated_at = datetime.now(timezone.utc)
+        self._updated_at = datetime.now(UTC)
 
     @tracer.start_as_current_span("Task.get_latest_status")
     def get_latest_status(self) -> str:
@@ -424,7 +424,7 @@ class Task:
     # Serialization (JSON / YAML) - Updated to include CapTasks
     # ----------------------------------------------------------------------
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert task to a dictionary suitable for serialization."""
         return {
             "system_prompt": self._system_prompt,
@@ -435,13 +435,13 @@ class Task:
             "additional": self._additional,
             "previous_hash": self._previous_hash,
             "sub_tasks": [st.to_dict() for st in self._sub_tasks],
-            "cap_tasks": [ct.to_dict() for ct in self._cap_tasks],   # NEW
+            "cap_tasks": [ct.to_dict() for ct in self._cap_tasks],  # NEW
             "created_at": self._created_at.isoformat(),
             "updated_at": self._updated_at.isoformat(),
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Task":
+    def from_dict(cls, data: dict[str, Any]) -> "Task":
         """Create a Task instance from a dictionary."""
         # Recursively create subtasks
         sub_tasks = [cls.from_dict(st) for st in data.get("sub_tasks", [])]
@@ -468,7 +468,7 @@ class Task:
             task._updated_at = datetime.fromisoformat(data["updated_at"])
         return task
 
-    def to_json(self, indent: Optional[int] = None) -> str:
+    def to_json(self, indent: int | None = None) -> str:
         """Serialize task to JSON string."""
         return json.dumps(self.to_dict(), indent=indent)
 
@@ -546,6 +546,7 @@ if __name__ == "__main__":
 
     # Add a CapTask (requires actual CapTask class; here we simulate)
     from scl.meta.captask import CapTask
+
     cap = CapTask(cap_name="send_email", args=["user@example.com", "Subject"])
     root.add_cap_task(cap)
 

@@ -14,7 +14,6 @@ Features and design goals
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict
 
 from scl.meta.capability import Capability
 from scl.meta.msg import Msg
@@ -49,7 +48,7 @@ class StoreBase(ABC):
     @abstractmethod
     def search_by_similarity(
         self, msg: Msg, limit: int = 5, min_similarity: float = 0.5
-    ) -> Dict[str, Capability]:
+    ) -> dict[str, Capability]:
         """
         Semantic search for capabilities similar to the query embedding.
 
@@ -78,7 +77,7 @@ class StoreBase(ABC):
     @abstractmethod
     def getCapsByHistory(
         self, msg: Msg, limit: int = 5, min_similarity: float = 0.5
-    ) -> Dict[str, Capability]:
+    ) -> dict[str, Capability]:
         """
         Retrieve capabilities based on usage history.
 
@@ -101,6 +100,7 @@ class StoreBase(ABC):
             cap: The capability to store.
         """
         pass
+
 
 """
 Example usage:

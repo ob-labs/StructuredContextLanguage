@@ -26,23 +26,24 @@ Features:
 
 OpenTelemetry: uses tracer, meter and structured logging for full observability.
 """
+
 import logging
 import os
 import re
 import subprocess
 from itertools import product
-from typing import Optional, Dict, Any, List, Union
+from typing import Any
 
 from opentelemetry import trace
-from scl.otel.otel import tracer, meter
+
 from scl.meta.capability import Capability
+from scl.otel.otel import meter, tracer
 
 logger = logging.getLogger(__name__)
 
 # Meter for grep executions
 grep_execution_counter = meter.create_counter(
-    "grep_function_call.executed",
-    description="Number of times a grep function call was executed"
+    "grep_function_call.executed", description="Number of times a grep function call was executed"
 )
 
 
@@ -55,20 +56,42 @@ class GrepFunctionCall(Capability):
 
     # Flags that are known to work with igrep (derived from `igrep --help`)
     _IGREP_SUPPORTED_OPTIONS = {
-        "-i", "--ignore-case", "-S", "--smart-case",
-        "-.", "--hidden", "-L", "--follow", "-w", "--word-regexp",
-        "-g", "--glob", "-t", "--type", "-T", "--type-not",
-        "--editor", "--custom-command", "--theme", "--context-viewer",
-        "--type-list", "-h", "--help", "-V", "--version",
+        "-i",
+        "--ignore-case",
+        "-S",
+        "--smart-case",
+        "-.",
+        "--hidden",
+        "-L",
+        "--follow",
+        "-w",
+        "--word-regexp",
+        "-g",
+        "--glob",
+        "-t",
+        "--type",
+        "-T",
+        "--type-not",
+        "--editor",
+        "--custom-command",
+        "--theme",
+        "--context-viewer",
+        "--type-list",
+        "-h",
+        "--help",
+        "-V",
+        "--version",
     }
 
     @tracer.start_as_current_span("GrepFunctionCall.__init__")
-    def __init__(self,
-                 name: str,
-                 description: str,
-                 original_body: str,
-                 llm_description: Optional[str] = None,
-                 search_params: Optional[Dict] = None):
+    def __init__(
+        self,
+        name: str,
+        description: str,
+        original_body: str,
+        llm_description: str | None = None,
+        search_params: dict | None = None,
+    ):
         current_span = trace.get_current_span()
         current_span.set_attribute("grep.name", name)
 
@@ -77,7 +100,7 @@ class GrepFunctionCall(Capability):
             type="grep_function_call",
             description=description,
             original_body=original_body,
-            llm_description=llm_description
+            llm_description=llm_description,
         )
 
         # Default search parameters (used when not overridden in execute)
@@ -86,7 +109,7 @@ class GrepFunctionCall(Capability):
         logger.info(f"GrepFunctionCall '{name}' created")
 
     @tracer.start_as_current_span("GrepFunctionCall.execute")
-    def execute(self, args_dict: Dict[str, Any]) -> str:
+    def execute(self, args_dict: dict[str, Any]) -> str:
         """
         Execute the grep search with the provided arguments.
 
@@ -117,7 +140,7 @@ class GrepFunctionCall(Capability):
         try:
             cmd = self._build_command(merged_args)
             logger.info(f"Executing grep command: {' '.join(cmd)}")
-            current_span.set_attribute("grep.command", ' '.join(cmd))
+            current_span.set_attribute("grep.command", " ".join(cmd))
 
             result = self._run_command(cmd)
 
@@ -143,7 +166,7 @@ class GrepFunctionCall(Capability):
             current_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
             raise
 
-    def _build_command(self, args_dict: Dict[str, Any]) -> List[str]:
+    def _build_command(self, args_dict: dict[str, Any]) -> list[str]:
         """
         Build the grep command using the appropriate binary (igrep or grep),
         translating options as needed for compatibility.
@@ -241,7 +264,7 @@ class GrepFunctionCall(Capability):
             "Please install igrep or ensure grep is in your PATH."
         )
 
-    def _parse_glob(self, glob_pattern: str) -> List[str]:
+    def _parse_glob(self, glob_pattern: str) -> list[str]:
         """
         Parse glob patterns. Supports comma/space separation and brace expansion.
 
@@ -254,18 +277,18 @@ class GrepFunctionCall(Capability):
         depth = 0
         simplified = []
         for ch in glob_pattern:
-            if ch == '{':
+            if ch == "{":
                 depth += 1
                 simplified.append(ch)
-            elif ch == '}':
+            elif ch == "}":
                 depth -= 1
                 simplified.append(ch)
-            elif ch == ',' and depth == 0:
-                simplified.append(' ')  # treat as whitespace separator
+            elif ch == "," and depth == 0:
+                simplified.append(" ")  # treat as whitespace separator
             else:
                 simplified.append(ch)
         # Step 2: split by whitespace to obtain raw tokens
-        raw_tokens = re.split(r'\s+', ''.join(simplified).strip())
+        raw_tokens = re.split(r"\s+", "".join(simplified).strip())
         # Step 3: expand braces in each token
         expanded = []
         for token in raw_tokens:
@@ -275,7 +298,7 @@ class GrepFunctionCall(Capability):
         return expanded if expanded else [glob_pattern]
 
     @staticmethod
-    def _expand_braces(text: str) -> List[str]:
+    def _expand_braces(text: str) -> list[str]:
         """
         Expand brace groups like "{a,b}" into a list of strings.
 
@@ -283,24 +306,24 @@ class GrepFunctionCall(Capability):
         No nesting of braces is supported.
         """
         # Find all brace groups
-        brace_re = re.compile(r'\{([^{}]*)\}')
+        brace_re = re.compile(r"\{([^{}]*)\}")
         matches = list(brace_re.finditer(text))
         if not matches:
             return [text]
         # Extract the comma-separated options for each group
-        option_lists = [m.group(1).split(',') for m in matches]
+        option_lists = [m.group(1).split(",") for m in matches]
         results = []
         for combo in product(*option_lists):
             # Reconstruct the string by replacing each brace group with the chosen option
             last_idx = 0
             parts = []
-            for match, opt in zip(matches, combo):
+            for match, opt in zip(matches, combo, strict=False):
                 start, end = match.span()
                 parts.append(text[last_idx:start])
                 parts.append(opt)
                 last_idx = end
             parts.append(text[last_idx:])
-            results.append(''.join(parts))
+            results.append("".join(parts))
         return results
 
     @staticmethod
@@ -311,7 +334,7 @@ class GrepFunctionCall(Capability):
         except FileNotFoundError:
             return False
 
-    def _run_command(self, cmd: List[str]) -> str:
+    def _run_command(self, cmd: list[str]) -> str:
         """
         Execute the grep command and return the output.
         """
@@ -320,7 +343,7 @@ class GrepFunctionCall(Capability):
                 cmd,
                 capture_output=True,
                 text=True,
-                check=False  # grep returns 1 if no matches found
+                check=False,  # grep returns 1 if no matches found
             )
             if result.returncode == 0:
                 return result.stdout
@@ -336,7 +359,9 @@ class GrepFunctionCall(Capability):
             raise
 
     def __repr__(self) -> str:
-        return f"GrepFunctionCall(name='{self.name}', pattern='{self.search_params.get('pattern')}')"
+        return (
+            f"GrepFunctionCall(name='{self.name}', pattern='{self.search_params.get('pattern')}')"
+        )
 
 
 """
